@@ -32,10 +32,8 @@ export class LoginGuard implements CanActivate {
   // 首先先经过登录守卫，然后根据token解析对应的用户信息存到request.user中
   canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
     const request: Request = context.switchToHttp().getRequest()
-    console.log('🚀 ~ LoginGuard ~ canActivate ~ request:', request.user)
 
     const authorization = request.headers.authorization
-    console.log('🚀 ~ LoginGuard ~ canActivate ~ authorization:', authorization)
 
     // Reflector 是 NestJS 提供的一个工具，用于访问类和方法的元数据。它可以从类或方法上提取装饰器设置的元数据。
     // getAllAndOverride 是 Reflector 的方法。它用于获取某个元数据键的所有值，并按优先级顺序覆盖。这意味着如果有多个装饰器提供相同的元数据键，它会返回最高优先级的那个。
@@ -52,7 +50,6 @@ export class LoginGuard implements CanActivate {
       try {
         const token = authorization.split(' ')[1]
         const data = this.jwtService.verify(token)
-        console.log('🚀 ~ LoginGuard ~ canActivate ~ data:', data)
         request.user = data.result
         return true
       } catch (error) {

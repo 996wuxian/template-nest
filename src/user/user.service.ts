@@ -231,8 +231,6 @@ export class UserService {
 
   // 查询所有用户
   async findAll(query: { keyWord?: string; page?: number; pageSize?: number }) {
-    console.log('🚀 ~ UserService ~ findAll ~ query:', query)
-
     let data
     let totalCount
     if (query.keyWord) {
@@ -259,8 +257,6 @@ export class UserService {
         }
       })
     } else {
-      console.log('123')
-
       data = await this.entityManager.find(UserEntity)
       totalCount = await this.entityManager.count(UserEntity)
     }
