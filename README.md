@@ -22,7 +22,7 @@
 
 ## Description
 
-这是一个包含跨域配置、Session、接口参数验证和约束、Swagger、数据库连接的Nest后台模板。
+这是一个包含跨域配置、Session、接口参数验证和约束、Swagger、mysql数据库连接、登录、JWT、用户角色权限、接口权限、Redis存取对应角色权限的Nest后台模板。
 
 ## Installation
 
