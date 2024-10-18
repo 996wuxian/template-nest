@@ -17,6 +17,7 @@ import { RequireLogin, RequirePermission } from '../guard/custom-decorator'
 
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CreateFileDto } from './dto/create-upload.dto'
+import { FileSizeValidationPipe } from './file-size-validation-pipe.pipe'
 
 @RequireLogin() // 校验token
 @Controller('api/upload')
@@ -29,9 +30,12 @@ export class UploadController {
   @RequirePermission('add') // 给添加权限
   // 代表使用FileInterceptor处理上传的form data里的 file 字段的数据，也可以不指定字段名，直接处理整个表单数据。
   // 图片保存位置在module中进行配置
+  // 限制文件类型
   @UseInterceptors(FileInterceptor('file', multerConfig))
   // 使用UploadedFile装饰器从 request 中取出 file。
-  upload(@UploadedFile() file: Express.Multer.File) {
+  // FileSizeValidationPipe限制文件大小
+  upload(@UploadedFile(FileSizeValidationPipe) file: Express.Multer.File, @Body() body) {
+    console.log('🚀 ~ UploadController ~ upload ~ body:', body)
     return this.uploadService.upload(file)
   }
 
