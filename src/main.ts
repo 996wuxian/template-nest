@@ -7,6 +7,7 @@ import { ClassSerializerInterceptor, ValidationPipe, Logger } from '@nestjs/comm
 
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import * as fs from 'fs'
+import { join } from 'path'
 
 import * as session from 'express-session'
 
@@ -67,6 +68,11 @@ async function bootstrap() {
 
   // 8 跨域配置
   app.enableCors(corsOptionsDelegate)
+
+  // 9 静态资源虚拟路径
+  app.useStaticAssets(join(__dirname, 'uploadFile'), {
+    prefix: '/uploadFile'
+  })
 
   // 2
   await app.listen(PORT, () => {
