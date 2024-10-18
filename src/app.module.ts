@@ -1,8 +1,15 @@
-import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { Module } from '@nestjs/common'
+import { AppController } from './app.controller'
+import { AppService } from './app.service'
 
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmModule } from '@nestjs/typeorm'
+import { UserModule } from './user/user.module'
+import { MenuModule } from './menu/menu.module'
+import { RedisModule } from './redis/redis.module'
+
+import { APP_GUARD } from '@nestjs/core'
+import { LoginGuard } from './guard/login.guard'
+import { PermissionGuard } from './guard/permission.guard'
 
 @Module({
   imports: [
@@ -17,10 +24,23 @@ import { TypeOrmModule } from '@nestjs/typeorm';
       synchronize: true,
       retryDelay: 500,
       retryAttempts: 10,
-      autoLoadEntities: true,
+      autoLoadEntities: true
     }),
+    UserModule,
+    MenuModule,
+    RedisModule
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: LoginGuard
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionGuard
+    }
+  ]
 })
 export class AppModule {}
