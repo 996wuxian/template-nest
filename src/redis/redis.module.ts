@@ -7,7 +7,7 @@ import { createClient } from 'redis'
   providers: [
     RedisService,
     {
-      provide: 'REDIS_CLENT',
+      provide: 'REDIS_CLIENT',
       async useFactory() {
         const client = createClient({
           socket: {
