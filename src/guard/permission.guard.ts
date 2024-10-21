@@ -21,26 +21,21 @@ export class PermissionGuard implements CanActivate {
   // 请求数据库拿对应的用户数据
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request: Request = context.switchToHttp().getRequest()
-    console.log(request.user, 'request.user')
-
     if (!request.user) {
       return true
     }
 
     let permissions = await this.redisService.listGet(`user_${request.user.userName}_permission`)
 
-    console.log('🚀 ~ PermissionGuard ~ canActivate ~ permissions:', permissions)
     if (permissions.length === 0) {
       //! 可能一个用户是多个角色
       const roles = await this.userService.findRolesByIds(request.user.roles.map((item) => item.id))
-      console.log(roles, 'roles')
       //! 可能存在roles[0].permissions 和roles[1].permissions
       const permissionsList: PermissionEntity[] = roles.reduce((total, current) => {
         total.push(...current.permissions)
         return total
       }, [])
       permissions = permissionsList.map((item) => item.name)
-      console.log('🚀 ~ PermissionGuard ~ canActivate ~ permissions:', permissions)
       this.redisService.listSet(`user_${request.user.userName}_permission`, permissions, 60 * 30)
     }
     //! 获取当前handler的元数据
@@ -48,12 +43,10 @@ export class PermissionGuard implements CanActivate {
       context.getClass(),
       context.getHandler()
     ])
-    console.log('🚀 ~ PermissionGuard ~ canActivate ~ requirePermissions:', requirePermissions)
 
     const isPermit = permissions.some((item) => {
       return item == requirePermissions
     })
-    console.log('🚀 ~ PermissionGuard ~ isPermit ~ isPermit:', isPermit)
     if (isPermit && requirePermissions !== undefined) {
       return true
     } else {

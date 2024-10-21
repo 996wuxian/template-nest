@@ -9,18 +9,19 @@ import { TypeOrmModule } from '@nestjs/typeorm'
 
 @Module({
   imports: [
-    MulterModule.register({
-      storage: diskStorage({
-        destination: join(__dirname, '../uploadFile'), // 存放位置
-        filename: (_, file, cb) => {
-          // const filename = `${Date.now()}-${decodeURIComponent(
-          //   escape(file.originalname),
-          // )}`;
-          const filename = decodeURIComponent(escape(file.originalname))
-          return cb(null, filename)
-        }
-      })
-    }),
+    // MulterModule.register({
+    //   storage: diskStorage({
+    //     destination: join(__dirname, '../uploadFile'), // 存放位置
+    //     filename: (_, file, cb) => {
+    //       // const filename = `${Date.now()}-${decodeURIComponent(
+    //       //   escape(file.originalname),
+    //       // )}`;
+    //       const filename = decodeURIComponent(escape(file.originalname))
+    //       return cb(null, filename)
+    //     }
+    //   })
+    // }),
+    MulterModule,
     TypeOrmModule.forFeature([UploadEntity])
   ],
   controllers: [UploadController],

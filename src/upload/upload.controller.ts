@@ -7,10 +7,12 @@ import {
   Res,
   Req,
   Delete,
-  Body
+  Body,
+  UploadedFiles,
+  Query
 } from '@nestjs/common'
 import { UploadService } from './upload.service'
-import { FileInterceptor } from '@nestjs/platform-express'
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express'
 // 上传文件限制
 import { multerConfig } from '../config/multerConfig'
 import { RequireLogin, RequirePermission } from '../guard/custom-decorator'
@@ -19,6 +21,8 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CreateFileDto } from './dto/create-upload.dto'
 import { FileSizeValidationPipe } from './file-size-validation-pipe.pipe'
 
+import * as fs from 'fs'
+
 @RequireLogin() // 校验token
 @Controller('api/upload')
 @ApiTags('上传')
@@ -26,22 +30,71 @@ export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
   @Post()
-  @ApiOperation({ summary: '上传文件' })
-  @RequirePermission('add') // 给添加权限
-  // 代表使用FileInterceptor处理上传的form data里的 file 字段的数据，也可以不指定字段名，直接处理整个表单数据。
-  // 图片保存位置在module中进行配置
-  // 限制文件类型
+  @ApiOperation({ summary: '单文件上传' })
+  @RequirePermission('add')
   @UseInterceptors(FileInterceptor('file', multerConfig))
-  // 使用UploadedFile装饰器从 request 中取出 file。
-  // FileSizeValidationPipe限制文件大小
   upload(@UploadedFile(FileSizeValidationPipe) file: Express.Multer.File, @Body() body) {
-    console.log('🚀 ~ UploadController ~ upload ~ body:', body)
     return this.uploadService.upload(file)
+  }
+
+  @Post('uploadFile')
+  @ApiOperation({ summary: '分片上传' })
+  @RequirePermission('add')
+  @UseInterceptors(
+    FilesInterceptor('files', 20, {
+      dest: 'uploads'
+    })
+  )
+  uploadFile(@UploadedFiles() files: Array<Express.Multer.File>, @Body() body: { name: string }) {
+    const fileName = body.name.match(/(.+)\-\d+$/)[1]
+    const chunkDir = 'uploads/chunks_' + fileName
+    if (!fs.existsSync(chunkDir)) {
+      fs.mkdirSync(chunkDir)
+    }
+    fs.cpSync(files[0].path, chunkDir + '/' + body.name)
+    fs.rmSync(files[0].path)
+  }
+
+  @Get('merge')
+  @ApiOperation({ summary: '合并文件' })
+  @RequirePermission('add')
+  merge(@Query('name') name: string) {
+    const chunkDir = 'uploads/chunks_' + name
+
+    const files = fs.readdirSync(chunkDir)
+
+    let count = 0
+    let startPos = 0
+    files.map((file) => {
+      const filePath = chunkDir + '/' + file
+      const stream = fs.createReadStream(filePath)
+      stream
+        .pipe(
+          fs.createWriteStream('uploads/' + name, {
+            start: startPos
+          })
+        )
+        .on('finish', () => {
+          count++
+
+          if (count === files.length) {
+            fs.rm(
+              chunkDir,
+              {
+                recursive: true
+              },
+              () => {}
+            )
+          }
+        })
+
+      startPos += fs.statSync(filePath).size
+    })
   }
 
   @Post('addFile')
   @ApiOperation({ summary: '将上传的文件的对应关系存储到数据库' })
-  @RequirePermission('add') // 给添加权限
+  @RequirePermission('add')
   async create(@Body() createFileDto: CreateFileDto, @Res() res) {
     const data = await this.uploadService.create(createFileDto)
     if (data) {
