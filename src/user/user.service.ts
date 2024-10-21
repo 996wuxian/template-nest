@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
 import { LoginDto } from './dto/login.dto'
@@ -147,6 +147,16 @@ export class UserService {
               expiresIn: '5h' // 过期时间
             }
           ),
+          refresh_token: this.jwtService.sign(
+            {
+              userId: result.id,
+              id: 'wuxian'
+            },
+            {
+              secret: jwtConstants.secret,
+              expiresIn: '7d'
+            }
+          ),
           userInfo: result
         }
       }
@@ -269,5 +279,40 @@ export class UserService {
 
   update(id: number, updateUserDto: UpdateUserDto) {
     return this.entityManager.update(UserEntity, id, updateUserDto)
+  }
+
+  // 刷新token
+  async refreshToken(refreshToken: string) {
+    try {
+      const data = this.jwtService.verify(refreshToken)
+
+      const user = await this.findOneOfById(data.userId)
+
+      const access_token = this.jwtService.sign(
+        {
+          userId: user.id,
+          username: user.userName
+        },
+        {
+          expiresIn: '30m'
+        }
+      )
+
+      const refresh_token = this.jwtService.sign(
+        {
+          userId: user.id
+        },
+        {
+          expiresIn: '7d'
+        }
+      )
+
+      return {
+        access_token,
+        refresh_token
+      }
+    } catch (e) {
+      throw new UnauthorizedException('token 已失效，请重新登录')
+    }
   }
 }

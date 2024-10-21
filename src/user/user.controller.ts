@@ -71,6 +71,16 @@ export class UserController {
     }
   }
 
+  @Get('refresh')
+  @ApiOperation({ summary: '刷新token' })
+  async refresh(@Query('refresh_token') refreshToken: string) {
+    const { access_token, refresh_token } = await this.userService.refreshToken(refreshToken)
+    return {
+      access_token,
+      refresh_token
+    }
+  }
+
   @Post('register')
   @ApiOperation({ summary: '创建用户' })
   async create(@Body() createUserDto: CreateUserDto) {
