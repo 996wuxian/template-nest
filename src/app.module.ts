@@ -11,6 +11,7 @@ import { APP_GUARD } from '@nestjs/core'
 import { LoginGuard } from './guard/login.guard'
 import { PermissionGuard } from './guard/permission.guard'
 import { UploadModule } from './upload/upload.module';
+import { ArticleModule } from './article/article.module';
 
 @Module({
   imports: [
@@ -30,7 +31,8 @@ import { UploadModule } from './upload/upload.module';
     UserModule,
     MenuModule,
     RedisModule,
-    UploadModule
+    UploadModule,
+    ArticleModule
   ],
   controllers: [AppController],
   providers: [
