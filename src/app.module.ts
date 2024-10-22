@@ -10,11 +10,15 @@ import { RedisModule } from './redis/redis.module'
 import { APP_GUARD } from '@nestjs/core'
 import { LoginGuard } from './guard/login.guard'
 import { PermissionGuard } from './guard/permission.guard'
-import { UploadModule } from './upload/upload.module';
-import { ArticleModule } from './article/article.module';
+import { UploadModule } from './upload/upload.module'
+import { ArticleModule } from './article/article.module'
+
+import { ScheduleModule } from '@nestjs/schedule'
+import { TaskModule } from './task/task.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
       type: 'mysql',
       host: 'localhost',
@@ -32,7 +36,8 @@ import { ArticleModule } from './article/article.module';
     MenuModule,
     RedisModule,
     UploadModule,
-    ArticleModule
+    ArticleModule,
+    TaskModule
   ],
   controllers: [AppController],
   providers: [

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common'
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common'
 import { ArticleService } from './article.service'
 import { CreateArticleDto } from './dto/create-article.dto'
 import { UpdateArticleDto } from './dto/update-article.dto'
@@ -22,13 +22,15 @@ export class ArticleController {
   @Get(':id')
   @ApiOperation({ summary: '根据id查询文章' })
   findOne(@Param('id') id: string) {
+    console.log('123')
     return this.articleService.findOne(+id)
   }
 
-  @Get(':id/view')
+  @Get('view/count')
   @ApiOperation({ summary: '阅读量, 请求递增' })
-  async view(@Param('id') id: string) {
-    return await this.articleService.view(+id)
+  async view(@Query() query: { id: number; userId: number }) {
+    // console.log('🚀 ~ ArticleController ~ view ~ param:', param)
+    return await this.articleService.view(query.id, query.userId)
   }
 
   @Patch(':id')
