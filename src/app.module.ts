@@ -15,6 +15,7 @@ import { ArticleModule } from './article/article.module'
 
 import { ScheduleModule } from '@nestjs/schedule'
 import { TaskModule } from './task/task.module';
+import { PuppeteerModule } from './puppeteer/puppeteer.module';
 
 @Module({
   imports: [
@@ -37,7 +38,8 @@ import { TaskModule } from './task/task.module';
     RedisModule,
     UploadModule,
     ArticleModule,
-    TaskModule
+    TaskModule,
+    PuppeteerModule
   ],
   controllers: [AppController],
   providers: [
