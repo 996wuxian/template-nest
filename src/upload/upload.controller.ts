@@ -54,6 +54,7 @@ export class UploadController {
   )
   async uploadFile(
     @UploadedFiles() files: Array<Express.Multer.File>,
+
     @Body() body: { name: string; fileHash: string; chunkIndex: number; totalChunks: number }
   ) {
     try {
@@ -79,39 +80,34 @@ export class UploadController {
         try {
           const uploadsDir = 'uploads'
           const files = await fs.promises.readdir(uploadsDir)
-          console.log('🚀 ~ UploadController ~ files:', files)
+          console.log('需要清理的文件列表:', files)
 
           for (const file of files) {
-            if (!file.startsWith('chunks_')) {
+            // 只处理属于当前文件的临时分片
+            if (!file.startsWith('chunks_') && file.includes(fileHash)) {
               const filePath = `${uploadsDir}/${file}`
               try {
                 // 确保是文件而不是目录
                 const stat = await fs.promises.stat(filePath)
                 if (stat.isFile()) {
-                  // 强制删除文件
-                  await fs.rmSync(filePath, { force: true })
-                  // 验证文件是否真的被删除
-                  if (!fs.existsSync(filePath)) {
+                  try {
+                    // 强制删除文件
+                    await fs.promises.rm(filePath, { force: true })
                     console.log('成功删除临时文件:', filePath)
-                  } else {
-                    console.error('文件删除失败，文件仍然存在:', filePath)
+                  } catch (rmError) {
+                    console.error('异步删除失败，尝试同步删除:', filePath)
+                    // 如果异步删除失败，尝试同步删除
+                    fs.rmSync(filePath, { force: true })
+                    console.log('使用同步方法成功删除文件:', filePath)
                   }
                 }
               } catch (e) {
-                console.error('删除文件时发生错误:', filePath, e)
-                // 尝试使用同步方法删除
-                try {
-                  fs.rmSync(filePath, { force: true })
-
-                  console.log('使用同步方法成功删除文件:', filePath)
-                } catch (syncRmError) {
-                  console.error('同步删除也失败:', filePath, syncRmError)
-                }
+                console.error('处理文件失败:', filePath, e)
               }
             }
           }
         } catch (error) {
-          console.error('清理孤立分片失败:', error)
+          console.error('清理临时文件失败:', error)
         }
       }
 
@@ -137,6 +133,7 @@ export class UploadController {
       }
     }
   }
+
   @Get('checkFileExist')
   @ApiOperation({ summary: '检查文件是否已存在（极速上传）' })
   @RequirePermission('add')
