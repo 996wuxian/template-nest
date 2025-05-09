@@ -28,11 +28,11 @@ export class UserService {
   async initUserRulePermission() {
     // 用户初始化
     const adminUser = new UserEntity()
-    adminUser.userName = 'admin'
+    adminUser.username = 'admin'
     adminUser.password = encryptPwd('123')
 
     const ordinaryUser = new UserEntity()
-    ordinaryUser.userName = 'wuxian'
+    ordinaryUser.username = 'wuxian'
     ordinaryUser.password = encryptPwd('123')
 
     // 角色初始化
@@ -117,7 +117,7 @@ export class UserService {
         data.push(res)
       }
     } else {
-      data = await this.findOneOfName(userInfo.userName)
+      data = await this.findOneOfName(userInfo.username)
       if (!data.length) {
         return {
           code: 400,
@@ -126,7 +126,7 @@ export class UserService {
       }
     }
     if (
-      (data[0].userName === userInfo.userName &&
+      (data[0].username === userInfo.username &&
         compareSyncPwd(userInfo.password, data[0].password)) ||
       data[0].email === userInfo.email
     ) {
@@ -166,9 +166,9 @@ export class UserService {
   }
 
   // 通过名字查找用户
-  async findOneOfName(userName: string) {
+  async findOneOfName(username: string) {
     const data = await this.entityManager.find(UserEntity, {
-      where: { userName },
+      where: { username },
       relations: {
         roles: true
       }
@@ -187,7 +187,8 @@ export class UserService {
   // 创建用户
   async create(createUserDto: CreateUserDto) {
     const data = new UserEntity()
-    data.userName = createUserDto?.userName || ''
+    data.username = createUserDto?.username || ''
+    data.nickname = createUserDto?.nickname || ''
     data.password = createUserDto?.password ? encryptPwd(createUserDto?.password) : ''
     data.phone = createUserDto?.phone || ''
     data.email = createUserDto?.email || ''
@@ -248,7 +249,7 @@ export class UserService {
         await this.entityManager.find(UserEntity, {
           // Like 模糊查询
           where: {
-            userName: Like(`%${query.keyWord || ''}%`)
+            username: Like(`%${query.keyWord || ''}%`)
           },
           // order: {
           //   id: 'DESC',  // 倒叙 ASC 正序
@@ -263,7 +264,7 @@ export class UserService {
       ).filter((user) => delete user.password)
       totalCount = await this.entityManager.count(UserEntity, {
         where: {
-          userName: Like(`%${query.keyWord}%`)
+          username: Like(`%${query.keyWord}%`)
         }
       })
     } else {
@@ -291,7 +292,7 @@ export class UserService {
       const access_token = this.jwtService.sign(
         {
           userId: user.id,
-          username: user.userName
+          username: user.username
         },
         {
           expiresIn: '30m'

@@ -10,7 +10,8 @@ import { RedisModule } from './redis/redis.module'
 import { APP_GUARD } from '@nestjs/core'
 import { LoginGuard } from './guard/login.guard'
 import { PermissionGuard } from './guard/permission.guard'
-import { UploadModule } from './upload/upload.module';
+import { UploadModule } from './upload/upload.module'
+import { SocketModule } from './socket/socket.module'
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { UploadModule } from './upload/upload.module';
       port: 3306,
       username: 'root',
       password: 'wuxian',
-      database: 'template-nest-db',
+      database: 'im-db',
       // entities: [__dirname + '/**/*.entity{.ts,.js}'],
       synchronize: true,
       retryDelay: 500,
@@ -30,7 +31,8 @@ import { UploadModule } from './upload/upload.module';
     UserModule,
     MenuModule,
     RedisModule,
-    UploadModule
+    UploadModule,
+    SocketModule
   ],
   controllers: [AppController],
   providers: [

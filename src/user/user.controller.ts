@@ -84,17 +84,38 @@ export class UserController {
   @Post('register')
   @ApiOperation({ summary: '创建用户' })
   async create(@Body() createUserDto: CreateUserDto) {
-    const { userName } = createUserDto
-    const existUser = await this.userService.findOneOfName(userName)
-    if (existUser.length) {
-      throw new BadRequestException('注册用户已存在')
+    // 生成随机10位数账号
+    const generateUsername = async (startNum: number): Promise<string> => {
+      const randomNum = Math.floor(Math.random() * 9) + 1 // 1-9随机数
+      const username = startNum.toString() + randomNum.toString().padStart(9, '0')
+
+      // 检查用户名是否存在
+      const existUser = await this.userService.findOneOfName(username)
+      if (existUser.length) {
+        // 如果存在，递增起始数字重试
+        return generateUsername(startNum + 1)
+      }
+      return username
     }
 
-    const { password, ...data } = await this.userService.create(createUserDto)
+    // 从1开始生成用户名
+    const username = await generateUsername(1)
+
+    // 合并生成的用户名到注册数据
+    const registerData = {
+      ...createUserDto,
+      username,
+      state: 1 // 默认启用状态
+    }
+
+    const { password, ...data } = await this.userService.create(registerData)
     return {
       code: 200,
-      msg: '创建成功',
-      data
+      msg: '注册成功',
+      data: {
+        ...data,
+        username // 返回生成的用户名
+      }
     }
   }
 

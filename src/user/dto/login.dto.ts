@@ -7,7 +7,7 @@ export class LoginDto {
     description: '用户名',
     example: 'admin'
   })
-  userName: string
+  username: string
 
   @IsString()
   @IsOptional()
@@ -38,6 +38,7 @@ export class LoginDto {
    * @ApiProperty(description="验证码")
    */
   @IsString()
+  @IsOptional()
   @ApiProperty({
     description: '验证码'
   })

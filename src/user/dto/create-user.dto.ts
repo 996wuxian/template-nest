@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsString, IsOptional, IsNumber, IsEnum } from 'class-validator'
+import { IsString, IsOptional, IsNumber, IsEnum, IsNotEmpty } from 'class-validator'
 export class CreateUserDto {
   /**
    * 用户id
@@ -21,21 +21,33 @@ export class CreateUserDto {
    * @IsString()
    * @ApiProperty(description="用户名", example="admin")
    */
-  @IsString()
   @IsOptional()
   @ApiProperty({
-    description: '用户名',
-    example: 'admin'
+    description: '用户名(系统自动生成)',
+    example: '1234567890'
   })
-  userName: string
+  username?: string
+  /**
+   * 昵称
+   *
+   * @IsString()
+   * @ApiProperty(description="昵称")
+   */
+  @IsNotEmpty({ message: '昵称不能为空' })
+  @IsString()
+  @ApiProperty({
+    description: '昵称',
+    example: '张三'
+  })
+  nickname: string
   /**
    * 密码
    *
    * @IsString()
    * @ApiProperty(description="密码", example="123456")
    */
+  @IsNotEmpty({ message: '密码不能为空' })
   @IsString()
-  @IsOptional()
   @ApiProperty({
     description: '密码',
     example: '123456'
@@ -75,7 +87,7 @@ export class CreateUserDto {
    * @IsString()
    * @ApiProperty(description="手机号", example="13888888888")
    */
-  @IsOptional()
+  @IsNotEmpty({ message: '手机号不能为空' })
   @IsString()
   @ApiProperty({
     description: '手机号',
@@ -99,4 +111,17 @@ export class CreateUserDto {
     example: 1
   })
   state: number
+  /**
+   * 头像
+   *
+   * @IsOptional()
+   * @IsString()
+   * @ApiProperty(description="头像")
+   */
+  @IsOptional()
+  @IsString()
+  @ApiProperty({
+    description: '头像'
+  })
+  avatar: string
 }

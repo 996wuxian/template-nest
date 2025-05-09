@@ -16,7 +16,7 @@ import { Reflector } from '@nestjs/core'
 declare module 'express' {
   interface Request {
     user: {
-      userName: string
+      username: string
       roles: RoleEntity[]
     }
   }

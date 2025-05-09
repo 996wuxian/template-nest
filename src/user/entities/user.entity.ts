@@ -21,8 +21,14 @@ export class UserEntity {
     length: 255,
     nullable: false
   })
-  userName: string
+  username: string
   @Exclude({ toPlainOnly: true })
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true
+  })
+  nickname: string
   @Column({
     type: 'varchar',
     length: 255,
@@ -48,6 +54,12 @@ export class UserEntity {
     enum: [0, 1]
   })
   state: number
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true
+  })
+  avatar: string
   @Column({
     name: 'created_at',
     type: 'datetime',

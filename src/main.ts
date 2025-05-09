@@ -6,6 +6,8 @@ import { NestExpressApplication } from '@nestjs/platform-express'
 import { ClassSerializerInterceptor, ValidationPipe, Logger } from '@nestjs/common'
 
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
+import { knife4jSetup } from 'nest-knife4j'
+
 import * as fs from 'fs'
 import { join } from 'path'
 
@@ -13,11 +15,16 @@ import * as session from 'express-session'
 
 import { AppModule } from './app.module'
 import corsOptionsDelegate from './cors'
+import { IoAdapter } from '@nestjs/platform-socket.io'
 
+// 全局错误请求处理
+import { HttpExceptionFilter } from './utils/http-exception.filter'
 // 1
 export const IS_DEV = process.env.NODE_ENV !== 'production'
 const PORT = process.env.PORT || 9528
 const PREFIX = process.env.PREFIX || '/'
+const NAME = 'im-demo'
+const VERSION = '1.0.0'
 
 const startTime = new Date().getTime()
 async function bootstrap() {
@@ -27,6 +34,8 @@ async function bootstrap() {
     // 开启日志级别打印
     logger: IS_DEV ? ['log', 'debug', 'error', 'warn'] : ['error', 'warn']
   })
+
+  app.useGlobalFilters(new HttpExceptionFilter())
 
   // 4 接口参数验证
   app.useGlobalPipes(
@@ -55,16 +64,31 @@ async function bootstrap() {
   )
 
   // 7 swagger 需要在controller配置才能读到api-json
+  // const options = new DocumentBuilder()
+  //   .setTitle('template-nest')
+  //   .setVersion('1.0')
+  //   .setExternalDoc('api-json', `http://localhost:${PORT}/api-json`)
+  //   .build()
+
+  // const document = SwaggerModule.createDocument(app as any, options)
+
   const options = new DocumentBuilder()
-    .setTitle('template-nest')
+    .setTitle('Cats example')
+    .setDescription('The cats API description')
     .setVersion('1.0')
-    .setExternalDoc('api-json', `http://localhost:${PORT}/api-json`)
+    .addTag('cats')
     .build()
-
-  const document = SwaggerModule.createDocument(app as any, options)
-
+  const document = SwaggerModule.createDocument(app, options)
   fs.writeFileSync('./swagger-spec.json', JSON.stringify(document))
-  SwaggerModule.setup('/api-docs', app as any, document)
+  SwaggerModule.setup('api', app, document)
+  knife4jSetup(app, [
+    {
+      name: 'im-1.0.0',
+      url: `/api-json`,
+      swaggerVersion: '2.0',
+      location: `/api-json`
+    }
+  ])
 
   // 8 跨域配置
   app.enableCors(corsOptionsDelegate)
@@ -74,11 +98,15 @@ async function bootstrap() {
     prefix: '/uploadFile'
   })
 
+  // 启用 WebSocket
+  app.useWebSocketAdapter(new IoAdapter(app))
+
   // 2
   await app.listen(PORT, () => {
     logger.log(`服务已经启动,接口请访问:http://localhost:${PORT}/${PREFIX}`)
   })
-  logger.log(`swagger文档, 请访问:http://localhost:${PORT}/api-docs`)
+  // logger.log(`swagger文档, 请访问:http://localhost:${PORT}/api-docs`)
+  logger.log(`swagger文档, 请访问:http://localhost:${PORT}/doc.html`)
   logger.log(`swagger-json文件, 请访问:http://localhost:${PORT}/api-json`)
   console.info(`执行至 listen 耗时 ${new Date().getTime() - startTime}`)
 }

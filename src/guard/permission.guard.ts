@@ -25,7 +25,7 @@ export class PermissionGuard implements CanActivate {
       return true
     }
 
-    let permissions = await this.redisService.listGet(`user_${request.user.userName}_permission`)
+    let permissions = await this.redisService.listGet(`user_${request.user.username}_permission`)
 
     if (permissions.length === 0) {
       //! 可能一个用户是多个角色
@@ -36,7 +36,7 @@ export class PermissionGuard implements CanActivate {
         return total
       }, [])
       permissions = permissionsList.map((item) => item.name)
-      this.redisService.listSet(`user_${request.user.userName}_permission`, permissions, 60 * 30)
+      this.redisService.listSet(`user_${request.user.username}_permission`, permissions, 60 * 30)
     }
     //! 获取当前handler的元数据
     const requirePermissions = this.reflector.getAllAndOverride('require-permission', [
