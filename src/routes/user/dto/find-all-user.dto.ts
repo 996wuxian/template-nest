@@ -27,7 +27,7 @@ export class findAllUserDto {
     description: '每页条数',
     example: 10
   })
-  pageSize: number
+  pageSize?: number
   /**
    * 关键字
    *
@@ -37,8 +37,7 @@ export class findAllUserDto {
   @IsString()
   @IsOptional()
   @ApiProperty({
-    description: '密码',
-    example: ''
+    description: '关键字'
   })
   keyWord: string
 }

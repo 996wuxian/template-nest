@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm'
 import { UserEntity } from './entities/user.entity'
 import { PermissionEntity } from './entities/permission.entity'
 import { RoleEntity } from './entities/role.entity'
+import { UserChatListEntity } from './entities/user-chat-list.entity'
 import { jwtConstants } from './jwt/constants'
 // 注入策略
 import { JwtStrategy } from './jwt/jwt.strategy'
@@ -14,7 +15,7 @@ import { PassportModule } from '@nestjs/passport'
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserEntity, PermissionEntity, RoleEntity]),
+    TypeOrmModule.forFeature([UserEntity, PermissionEntity, RoleEntity, UserChatListEntity]),
     JwtModule.register({
       secret: jwtConstants.secret,
       signOptions: { expiresIn: '5h' }

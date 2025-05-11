@@ -10,7 +10,7 @@ import {
 import { JwtService } from '@nestjs/jwt'
 import { Request } from 'express'
 import { Observable } from 'rxjs'
-import { RoleEntity } from '../user/entities/role.entity'
+import { RoleEntity } from '../routes/user/entities/role.entity'
 import { Reflector } from '@nestjs/core'
 
 declare module 'express' {

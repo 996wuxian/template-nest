@@ -9,13 +9,16 @@ import { RoleEntity } from './entities/role.entity'
 import { jwtConstants } from './jwt/constants'
 
 import { InjectEntityManager } from '@nestjs/typeorm'
-import { Like, EntityManager, In } from 'typeorm'
+import { Like, EntityManager, In, Not } from 'typeorm'
 import { JwtService } from '@nestjs/jwt'
 
 import * as svgCaptcha from 'svg-captcha'
 
 import { Email } from 'src/utils/email'
 import { encryptPwd, compareSyncPwd } from 'src/utils/tools'
+
+import { UserChatListEntity } from './entities/user-chat-list.entity'
+import { AddFriendDto, UpdateFriendDto } from './dto/user-chat-list.dto'
 
 @Injectable()
 export class UserService {
@@ -29,11 +32,11 @@ export class UserService {
     // 用户初始化
     const adminUser = new UserEntity()
     adminUser.username = 'admin'
-    adminUser.password = encryptPwd('123')
+    adminUser.password = encryptPwd('iopp1234')
 
     const ordinaryUser = new UserEntity()
-    ordinaryUser.username = 'wuxian'
-    ordinaryUser.password = encryptPwd('123')
+    ordinaryUser.username = '1640551913'
+    ordinaryUser.password = encryptPwd('123123')
 
     // 角色初始化
     const adminRole = new RoleEntity()
@@ -195,18 +198,28 @@ export class UserService {
     data.state = createUserDto?.state || 1
 
     await this.entityManager.transaction(async (transactionalEntityManager) => {
-      // 如果 createUserDto 中包含角色 ID
+      // 如果 createUserDto 中包含角色 ID，使用指定角色
       if (createUserDto.role) {
-        // 查找对应的角色实体
         const role = await transactionalEntityManager.findOne(RoleEntity, {
           where: { id: createUserDto.role }
         })
 
         if (role) {
-          // 将角色赋值给用户
           data.roles = [role]
         } else {
           throw new Error(`Role with id ${createUserDto.role} not found`)
+        }
+      } else {
+        // 如果没有指定角色，默认分配普通用户角色
+        const ordinaryRole = await transactionalEntityManager.findOne(RoleEntity, {
+          where: { name: '普通用户' },
+          relations: ['permissions']
+        })
+
+        if (ordinaryRole) {
+          data.roles = [ordinaryRole]
+        } else {
+          throw new Error('默认角色"普通用户"不存在，请先初始化角色')
         }
       }
     })
@@ -241,36 +254,53 @@ export class UserService {
   }
 
   // 查询所有用户
-  async findAll(query: { keyWord?: string; page?: number; pageSize?: number }) {
+  async findAll(
+    query: { keyWord?: string; page?: number; pageSize?: number },
+    currentUserId: number
+  ) {
     let data
     let totalCount
-    if (query.keyWord) {
-      data = (
-        await this.entityManager.find(UserEntity, {
-          // Like 模糊查询
-          where: {
-            username: Like(`%${query.keyWord || ''}%`)
-          },
-          // order: {
-          //   id: 'DESC',  // 倒叙 ASC 正序
-          // },
-          skip: (query.page - 1) * query.pageSize, // 从0开始
-          take: query.pageSize,
-          // relations: ['tag', 'user'],
-          relations: {
-            roles: true
-          }
-        })
-      ).filter((user) => delete user.password)
-      totalCount = await this.entityManager.count(UserEntity, {
-        where: {
-          username: Like(`%${query.keyWord}%`)
-        }
-      })
-    } else {
-      data = await this.entityManager.find(UserEntity)
-      totalCount = await this.entityManager.count(UserEntity)
+
+    // 构建基础查询选项
+    const queryOptions: any = {
+      relations: {
+        roles: true
+      }
     }
+
+    // 构建where条件
+    let whereCondition: any = {}
+
+    // 如果currentUserId存在且有效，添加排除条件
+    if (currentUserId) {
+      whereCondition.id = Not(currentUserId)
+    }
+
+    // 如果有关键字，添加模糊查询条件
+    if (query.keyWord) {
+      whereCondition.nickname = Like(`%${query.keyWord || ''}%`)
+    }
+
+    // 添加where条件到查询选项
+    if (Object.keys(whereCondition).length > 0) {
+      queryOptions.where = whereCondition
+    }
+
+    // 只有同时提供了page和pageSize才进行分页
+    if (query.page && query.pageSize) {
+      queryOptions.skip = (query.page - 1) * query.pageSize
+      queryOptions.take = query.pageSize
+    }
+
+    // 执行查询
+    data = (await this.entityManager.find(UserEntity, queryOptions)).filter(
+      (user) => delete user.password
+    )
+
+    // 获取总数
+    totalCount = await this.entityManager.count(UserEntity, {
+      where: whereCondition
+    })
 
     return {
       data,
@@ -314,6 +344,95 @@ export class UserService {
       }
     } catch (e) {
       throw new UnauthorizedException('token 已失效，请重新登录')
+    }
+  }
+
+  // 添加好友
+  async addFriend(userId: number, addFriendDto: AddFriendDto) {
+    const friend = await this.findOneOfById(addFriendDto.friendId)
+    if (!friend) {
+      return {
+        code: 400,
+        msg: '用户不存在'
+      }
+    }
+
+    const existFriend = await this.entityManager.findOne(UserChatListEntity, {
+      where: {
+        userId,
+        friendId: addFriendDto.friendId
+      }
+    })
+
+    if (existFriend) {
+      return {
+        code: 400,
+        msg: '已经是好友了'
+      }
+    }
+
+    const chatList = new UserChatListEntity()
+    chatList.userId = userId
+    chatList.friendId = addFriendDto.friendId
+    chatList.remark = addFriendDto.remark
+    chatList.status = 0
+
+    await this.entityManager.save(UserChatListEntity, chatList)
+    return {
+      code: 200,
+      msg: '好友请求已发送'
+    }
+  }
+
+  // 获取好友列表
+  async getFriendList(userId: number) {
+    const friends = await this.entityManager.find(UserChatListEntity, {
+      where: { userId, status: 1 },
+      relations: ['friend']
+    })
+    return {
+      code: 200,
+      data: friends
+    }
+  }
+
+  // 更新好友信息
+  async updateFriend(userId: number, friendId: number, updateFriendDto: UpdateFriendDto) {
+    const friend = await this.entityManager.findOne(UserChatListEntity, {
+      where: { userId, friendId }
+    })
+
+    if (!friend) {
+      return {
+        code: 400,
+        msg: '好友不存在'
+      }
+    }
+
+    await this.entityManager.update(UserChatListEntity, { userId, friendId }, updateFriendDto)
+    return {
+      code: 200,
+      msg: '更新成功'
+    }
+  }
+
+  // 删除好友
+  async deleteFriend(userId: number, friendId: number) {
+    const friend = await this.entityManager.findOne(UserChatListEntity, {
+      where: { userId, friendId }
+    })
+
+    if (!friend) {
+      return {
+        code: 400,
+        msg: '好友不存在'
+      }
+    }
+
+    await this.entityManager.delete(UserChatListEntity, { userId, friendId })
+    return {
+      code: 200,
+      msg: '删除成功'
     }
   }
 }

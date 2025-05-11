@@ -22,7 +22,8 @@ import { findAllUserDto } from './dto/find-all-user.dto'
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { AuthGuard } from '@nestjs/passport'
 
-import { RequireLogin, RequirePermission } from '../guard/custom-decorator'
+import { RequireLogin, RequirePermission } from '../../guard/custom-decorator'
+import { AddFriendDto, UpdateFriendDto } from './dto/user-chat-list.dto'
 
 @Controller('api/user')
 @ApiTags('用户')
@@ -166,17 +167,58 @@ export class UserController {
     }
   }
 
-  @Post()
+  @Post('findAll')
   @UseGuards(AuthGuard('jwt'))
   @RequireLogin()
   @RequirePermission('select')
   @ApiOperation({ summary: '查找所有用户带分页带keyword' })
-  async findAll(@Body() body: findAllUserDto, @Res() res) {
-    const { data, totalCount } = await this.userService.findAll(body)
+  async findAll(@Body() body: findAllUserDto, @Res() res, @Req() req) {
+    console.log(req.user, 'req.user')
+    const { data, totalCount } = await this.userService.findAll(body, req.user)
     res.send({
       code: 200,
       data,
       totalCount
     })
+  }
+
+  @Post('friend')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @ApiOperation({ summary: '添加好友' })
+  async addFriend(@Req() req, @Body() addFriendDto: AddFriendDto) {
+    const userId = req.user.userId
+    return await this.userService.addFriend(userId, addFriendDto)
+  }
+
+  @Get('friend')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @ApiOperation({ summary: '获取好友列表' })
+  async getFriendList(@Req() req) {
+    const userId = req.user.userId
+    return await this.userService.getFriendList(userId)
+  }
+
+  @Patch('friend/:friendId')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @ApiOperation({ summary: '更新好友信息' })
+  async updateFriend(
+    @Req() req,
+    @Param('friendId') friendId: number,
+    @Body() updateFriendDto: UpdateFriendDto
+  ) {
+    const userId = req.user.userId
+    return await this.userService.updateFriend(userId, friendId, updateFriendDto)
+  }
+
+  @Delete('friend/:friendId')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @ApiOperation({ summary: '删除好友' })
+  async deleteFriend(@Req() req, @Param('friendId') friendId: number) {
+    const userId = req.user.userId
+    return await this.userService.deleteFriend(userId, friendId)
   }
 }

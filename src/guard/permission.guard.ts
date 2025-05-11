@@ -5,9 +5,9 @@ import {
   Inject,
   Injectable
 } from '@nestjs/common'
-import { UserService } from '../user/user.service'
+import { UserService } from '../routes/user/user.service'
 import { Request } from 'express'
-import { PermissionEntity } from '../user/entities/permission.entity'
+import { PermissionEntity } from '../routes/user/entities/permission.entity'
 import { Reflector } from '@nestjs/core'
 import { RedisService } from '../redis/redis.service'
 

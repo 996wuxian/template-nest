@@ -3,15 +3,15 @@ import { AppController } from './app.controller'
 import { AppService } from './app.service'
 
 import { TypeOrmModule } from '@nestjs/typeorm'
-import { UserModule } from './user/user.module'
-import { MenuModule } from './menu/menu.module'
+import { UserModule } from './routes/user/user.module'
+import { MenuModule } from './routes/menu/menu.module'
 import { RedisModule } from './redis/redis.module'
 
 import { APP_GUARD } from '@nestjs/core'
 import { LoginGuard } from './guard/login.guard'
 import { PermissionGuard } from './guard/permission.guard'
-import { UploadModule } from './upload/upload.module'
-import { SocketModule } from './socket/socket.module'
+import { UploadModule } from './routes/upload/upload.module'
+import { SocketModule } from './routes/socket/socket.module'
 
 @Module({
   imports: [

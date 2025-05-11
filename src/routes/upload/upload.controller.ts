@@ -14,8 +14,8 @@ import {
 import { UploadService } from './upload.service'
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express'
 // 上传文件限制
-import { multerConfig } from '../config/multerConfig'
-import { RequireLogin, RequirePermission } from '../guard/custom-decorator'
+import { multerConfig } from '../../config/multerConfig'
+import { RequireLogin, RequirePermission } from '../../guard/custom-decorator'
 
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CreateFileDto } from './dto/create-upload.dto'
