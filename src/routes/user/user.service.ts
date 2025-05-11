@@ -143,7 +143,7 @@ export class UserService {
           token: this.jwtService.sign(
             {
               result,
-              id: 'wuxian'
+              id: result.id
             },
             {
               secret: jwtConstants.secret,
@@ -153,7 +153,7 @@ export class UserService {
           refresh_token: this.jwtService.sign(
             {
               userId: result.id,
-              id: 'wuxian'
+              id: result.id
             },
             {
               secret: jwtConstants.secret,

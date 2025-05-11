@@ -182,12 +182,15 @@ export class UserController {
     })
   }
 
-  @Post('friend')
+  @Post('addFriend')
   @UseGuards(AuthGuard('jwt'))
   @RequireLogin()
+  @RequirePermission('add')
   @ApiOperation({ summary: '添加好友' })
   async addFriend(@Req() req, @Body() addFriendDto: AddFriendDto) {
-    const userId = req.user.userId
+    console.log(addFriendDto, 'addFriendDto')
+    console.log(req.user, 'req.user')
+    const userId = req.user
     return await this.userService.addFriend(userId, addFriendDto)
   }
 
