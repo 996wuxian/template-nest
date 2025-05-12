@@ -22,6 +22,22 @@ export class UserChatListEntity {
 
   @Column({
     type: 'varchar',
+    length: 255,
+    nullable: true,
+    comment: '最后一条消息'
+  })
+  lastMsg?: string
+
+  @Column({
+    type: 'enum',
+    enum: [0, 1],
+    nullable: true,
+    comment: '消息状态'
+  })
+  msgStatus?: number
+
+  @Column({
+    type: 'varchar',
     length: 50,
     nullable: true,
     comment: '好友备注'

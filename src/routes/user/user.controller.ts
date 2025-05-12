@@ -188,8 +188,6 @@ export class UserController {
   @RequirePermission('add')
   @ApiOperation({ summary: '添加好友' })
   async addFriend(@Req() req, @Body() addFriendDto: AddFriendDto) {
-    console.log(addFriendDto, 'addFriendDto')
-    console.log(req.user, 'req.user')
     const userId = req.user
     return await this.userService.addFriend(userId, addFriendDto)
   }

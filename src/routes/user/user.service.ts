@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common'
+import { forwardRef, Inject, Injectable, UnauthorizedException } from '@nestjs/common'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
 import { LoginDto } from './dto/login.dto'
@@ -19,10 +19,15 @@ import { encryptPwd, compareSyncPwd } from 'src/utils/tools'
 
 import { UserChatListEntity } from './entities/user-chat-list.entity'
 import { AddFriendDto, UpdateFriendDto } from './dto/user-chat-list.dto'
+import { SocketGateway } from '../socket/socket.gateway'
 
 @Injectable()
 export class UserService {
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService,
+    @Inject(forwardRef(() => SocketGateway))
+    private socketGateway: SocketGateway
+  ) {}
 
   @InjectEntityManager()
   entityManager: EntityManager
@@ -365,9 +370,29 @@ export class UserService {
     })
 
     if (existFriend) {
-      return {
-        code: 400,
-        msg: '已经是好友了'
+      // 根据不同状态返回不同的提示信息
+      switch (existFriend.status) {
+        case 0:
+          return {
+            code: 400,
+            msg: '好友请求待确认中'
+          }
+        case 1:
+          return {
+            code: 400,
+            msg: '已经是好友了'
+          }
+        case 2:
+          // 如果是已删除状态，允许重新添加
+          existFriend.status = 0
+          existFriend.remark = addFriendDto.remark
+          await this.entityManager.save(UserChatListEntity, existFriend)
+          break
+        case 3:
+          return {
+            code: 400,
+            msg: '对方已将您拉黑'
+          }
       }
     }
 
@@ -375,9 +400,30 @@ export class UserService {
     chatList.userId = userId
     chatList.friendId = addFriendDto.friendId
     chatList.remark = addFriendDto.remark
+    chatList.desc = addFriendDto.desc
     chatList.status = 0
 
     await this.entityManager.save(UserChatListEntity, chatList)
+
+    // 获取发送者的用户信息
+    const sender = await this.findOneOfById(userId)
+
+    console.log(userId, 'userId')
+    console.log(sender, 'sender')
+    console.log(addFriendDto.remark, 'addFriendDto.remark')
+
+    // 通过 socket 发送好友请求通知
+    this.socketGateway.server.emit('systemMessage', {
+      type: 'friendRequest',
+      targetUserId: addFriendDto.friendId, // 接收者ID
+      data: {
+        fromUserId: userId,
+        fromUserName: sender.nickname || sender.username,
+        desc: addFriendDto.desc,
+        time: new Date()
+      }
+    })
+
     return {
       code: 200,
       msg: '好友请求已发送'
