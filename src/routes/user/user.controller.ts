@@ -212,13 +212,14 @@ export class UserController {
   @Patch('friend/:friendId')
   @UseGuards(AuthGuard('jwt'))
   @RequireLogin()
+  @RequirePermission('update')
   @ApiOperation({ summary: '更新好友信息' })
   async updateFriend(
     @Req() req,
     @Param('friendId') friendId: number,
     @Body() updateFriendDto: UpdateFriendDto
   ) {
-    const userId = req.user.userId
+    const userId = req.user
     return await this.userService.updateFriend(userId, friendId, updateFriendDto)
   }
 

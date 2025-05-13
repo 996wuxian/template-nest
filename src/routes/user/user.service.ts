@@ -518,8 +518,15 @@ export class UserService {
 
   // 更新好友信息
   async updateFriend(userId: number, friendId: number, updateFriendDto: UpdateFriendDto) {
+    console.log(userId, 'userId')
+    console.log(friendId, 'friendId')
+    console.log(updateFriendDto, 'updateFriendDto')
+    // 修改查询条件，同时查询正向和反向的好友关系
     const friend = await this.entityManager.findOne(UserFriendEntity, {
-      where: { userId, friendId }
+      where: [
+        { userId, friendId },
+        { userId: friendId, friendId: userId }
+      ]
     })
 
     if (!friend) {
@@ -529,7 +536,17 @@ export class UserService {
       }
     }
 
-    await this.entityManager.update(UserFriendEntity, { userId, friendId }, updateFriendDto)
+    // 更新对应方向的好友关系
+    if (friend.userId === userId) {
+      await this.entityManager.update(UserFriendEntity, { userId, friendId }, updateFriendDto)
+    } else {
+      await this.entityManager.update(
+        UserFriendEntity,
+        { userId: friendId, friendId: userId },
+        updateFriendDto
+      )
+    }
+
     return {
       code: 200,
       msg: '更新成功'

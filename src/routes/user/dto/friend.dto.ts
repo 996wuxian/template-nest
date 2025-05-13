@@ -20,6 +20,12 @@ export class AddFriendDto {
 
 export class UpdateFriendDto {
   @ApiProperty({ description: '好友备注' })
+  @IsOptional()
   @IsString()
-  remark: string
+  remark?: string
+
+  @ApiProperty({ description: '状态' })
+  @IsOptional()
+  @IsString()
+  status?: '0' | '1' | '2' | '3' | '4'
 }
