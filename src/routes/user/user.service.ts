@@ -17,8 +17,8 @@ import * as svgCaptcha from 'svg-captcha'
 import { Email } from 'src/utils/email'
 import { encryptPwd, compareSyncPwd } from 'src/utils/tools'
 
-import { UserChatListEntity } from './entities/user-chat-list.entity'
-import { AddFriendDto, UpdateFriendDto } from './dto/user-chat-list.dto'
+import { UserFriendEntity } from './entities/friend.entity'
+import { AddFriendDto, UpdateFriendDto } from './dto/friend.dto'
 import { SocketGateway } from '../socket/socket.gateway'
 
 @Injectable()
@@ -362,7 +362,7 @@ export class UserService {
       }
     }
 
-    const existFriend = await this.entityManager.findOne(UserChatListEntity, {
+    const existFriend = await this.entityManager.findOne(UserFriendEntity, {
       where: {
         userId,
         friendId: addFriendDto.friendId
@@ -372,23 +372,23 @@ export class UserService {
     if (existFriend) {
       // 根据不同状态返回不同的提示信息
       switch (existFriend.status) {
-        case 0:
+        case '0':
           return {
             code: 400,
             msg: '好友请求待确认中'
           }
-        case 1:
+        case '1':
           return {
             code: 400,
             msg: '已经是好友了'
           }
-        case 2:
+        case '2':
           // 如果是已删除状态，允许重新添加
-          existFriend.status = 0
+          existFriend.status = '0'
           existFriend.remark = addFriendDto.remark
-          await this.entityManager.save(UserChatListEntity, existFriend)
+          await this.entityManager.save(UserFriendEntity, existFriend)
           break
-        case 3:
+        case '3':
           return {
             code: 400,
             msg: '对方已将您拉黑'
@@ -396,14 +396,14 @@ export class UserService {
       }
     }
 
-    const chatList = new UserChatListEntity()
+    const chatList = new UserFriendEntity()
     chatList.userId = userId
     chatList.friendId = addFriendDto.friendId
     chatList.remark = addFriendDto.remark
     chatList.desc = addFriendDto.desc
-    chatList.status = 0
+    chatList.status = '0'
 
-    await this.entityManager.save(UserChatListEntity, chatList)
+    await this.entityManager.save(UserFriendEntity, chatList)
 
     // 获取发送者的用户信息
     const sender = await this.findOneOfById(userId)
@@ -431,20 +431,94 @@ export class UserService {
   }
 
   // 获取好友列表
-  async getFriendList(userId: number) {
-    const friends = await this.entityManager.find(UserChatListEntity, {
-      where: { userId, status: 1 },
-      relations: ['friend']
-    })
+  async getFriendList(userId: number, type?: 'notice' | 'friend' | 'black' | 'all') {
+    if (!type || type === 'all') {
+      // 如果不传type或type为all，返回所有类型的列表
+      const [noticeList, friendList, blackList] = await Promise.all([
+        this.getFriendListByType(userId, 'notice'),
+        this.getFriendListByType(userId, 'friend'),
+        this.getFriendListByType(userId, 'black')
+      ])
+
+      return {
+        code: 200,
+        data: {
+          notice: noticeList, // 待确认和已拒绝的列表
+          friend: friendList, // 已添加的好友列表
+          black: blackList // 黑名单列表
+        }
+      }
+    }
+
+    // 如果传了具体的type，只返回对应类型的列表
+    const list = await this.getFriendListByType(userId, type)
     return {
       code: 200,
-      data: friends
+      data: list
     }
+  }
+
+  // 根据类型获取具体的列表
+  private async getFriendListByType(userId: number, type: 'notice' | 'friend' | 'black') {
+    let whereConditions: any
+
+    switch (type) {
+      case 'notice':
+        // 待确认和已拒绝的列表
+        whereConditions = [
+          { friendId: userId, status: '0' }, // 待确认
+          { friendId: userId, status: '4' } // 已拒绝
+        ]
+        break
+      case 'friend':
+        // 已添加的好友列表
+        whereConditions = [
+          { userId, status: '1' },
+          { friendId: userId, status: '1' }
+        ]
+        break
+      case 'black':
+        // 黑名单列表
+        whereConditions = [
+          { userId, status: '3' },
+          { friendId: userId, status: '3' }
+        ]
+        break
+    }
+
+    // 查询好友关系
+    const friends = await this.entityManager.find(UserFriendEntity, {
+      where: whereConditions,
+      relations: ['user', 'friend']
+    })
+
+    // 处理结果
+    return friends.map((item) => {
+      // 移除密码字段
+      if (item.user) {
+        item.user.password = undefined
+      }
+      if (item.friend) {
+        item.friend.password = undefined
+      }
+      // 如果当前用户是接收者，对方是发送者
+      if (item.friendId === userId) {
+        // 创建一个新对象，避免修改原对象
+        const result = { ...item }
+        result.friend = item.user // 将发送者信息赋值给friend字段
+        delete result.user // 删除user字段
+        return result
+      }
+
+      // 如果当前用户是发送者，保持原样但删除user字段
+      delete item.user
+      return item
+    })
   }
 
   // 更新好友信息
   async updateFriend(userId: number, friendId: number, updateFriendDto: UpdateFriendDto) {
-    const friend = await this.entityManager.findOne(UserChatListEntity, {
+    const friend = await this.entityManager.findOne(UserFriendEntity, {
       where: { userId, friendId }
     })
 
@@ -455,7 +529,7 @@ export class UserService {
       }
     }
 
-    await this.entityManager.update(UserChatListEntity, { userId, friendId }, updateFriendDto)
+    await this.entityManager.update(UserFriendEntity, { userId, friendId }, updateFriendDto)
     return {
       code: 200,
       msg: '更新成功'
@@ -464,7 +538,7 @@ export class UserService {
 
   // 删除好友
   async deleteFriend(userId: number, friendId: number) {
-    const friend = await this.entityManager.findOne(UserChatListEntity, {
+    const friend = await this.entityManager.findOne(UserFriendEntity, {
       where: { userId, friendId }
     })
 
@@ -475,7 +549,7 @@ export class UserService {
       }
     }
 
-    await this.entityManager.delete(UserChatListEntity, { userId, friendId })
+    await this.entityManager.delete(UserFriendEntity, { userId, friendId })
     return {
       code: 200,
       msg: '删除成功'

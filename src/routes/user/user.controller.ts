@@ -23,7 +23,7 @@ import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { AuthGuard } from '@nestjs/passport'
 
 import { RequireLogin, RequirePermission } from '../../guard/custom-decorator'
-import { AddFriendDto, UpdateFriendDto } from './dto/user-chat-list.dto'
+import { AddFriendDto, UpdateFriendDto } from './dto/friend.dto'
 
 @Controller('api/user')
 @ApiTags('用户')
@@ -192,13 +192,21 @@ export class UserController {
     return await this.userService.addFriend(userId, addFriendDto)
   }
 
-  @Get('friend')
+  @Get('friendList')
   @UseGuards(AuthGuard('jwt'))
   @RequireLogin()
   @ApiOperation({ summary: '获取好友列表' })
-  async getFriendList(@Req() req) {
-    const userId = req.user.userId
-    return await this.userService.getFriendList(userId)
+  @RequirePermission('select')
+  @ApiQuery({
+    name: 'type',
+    enum: ['notice', 'friend', 'black', 'all'],
+    required: false,
+    description:
+      'notice-待确认和已拒绝的列表, friend-已添加的好友列表, black-黑名单列表, all或不传-返回所有类型'
+  })
+  async getFriendList(@Req() req, @Query('type') type?: 'notice' | 'friend' | 'black' | 'all') {
+    const userId = req.user
+    return await this.userService.getFriendList(userId, type)
   }
 
   @Patch('friend/:friendId')
