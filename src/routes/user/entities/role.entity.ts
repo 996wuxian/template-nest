@@ -12,7 +12,7 @@ import {
 import { PermissionEntity } from './permission.entity'
 import { MenuEntity } from '../../menu/entities/menu.entity'
 
-@Entity()
+@Entity('role')
 export class RoleEntity {
   @PrimaryGeneratedColumn()
   id: number

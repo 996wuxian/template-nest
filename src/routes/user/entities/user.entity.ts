@@ -12,7 +12,7 @@ import { Exclude } from 'class-transformer'
 
 import { RoleEntity } from './role.entity'
 
-@Entity()
+@Entity('user')
 export class UserEntity {
   @PrimaryGeneratedColumn()
   id: number

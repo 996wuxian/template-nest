@@ -12,6 +12,7 @@ import { LoginGuard } from './guard/login.guard'
 import { PermissionGuard } from './guard/permission.guard'
 import { UploadModule } from './routes/upload/upload.module'
 import { SocketModule } from './routes/socket/socket.module'
+import { MessageModule } from './routes/message/message.module'
 
 @Module({
   imports: [
@@ -32,7 +33,8 @@ import { SocketModule } from './routes/socket/socket.module'
     MenuModule,
     RedisModule,
     UploadModule,
-    SocketModule
+    SocketModule,
+    MessageModule
   ],
   controllers: [AppController],
   providers: [

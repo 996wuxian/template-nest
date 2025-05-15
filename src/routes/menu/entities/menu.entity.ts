@@ -1,5 +1,5 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm'
-@Entity()
+@Entity('menu')
 export class MenuEntity {
   @PrimaryGeneratedColumn()
   menuId: number

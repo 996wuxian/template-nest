@@ -1,7 +1,7 @@
 export class Upload {}
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm'
 import { Exclude } from 'class-transformer'
-@Entity()
+@Entity('upload')
 export class UploadEntity {
   @PrimaryGeneratedColumn()
   id: number

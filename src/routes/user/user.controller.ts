@@ -240,4 +240,31 @@ export class UserController {
     const userId = req.user.userId
     return await this.userService.deleteFriend(userId, friendId)
   }
+
+  // 创建聊天关系
+  @Post('chat/:friendId')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('add')
+  @ApiOperation({ summary: '创建聊天关系' })
+  async createChatList(@Req() req, @Param('friendId') friendId: number) {
+    const userId = req.user
+    return await this.userService.createChatList(userId, friendId)
+  }
+
+  // 获取聊天列表
+  @Get('chat/list')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('select')
+  @ApiOperation({ summary: '获取聊天列表' })
+  async getChatList(@Req() req) {
+    const userId = req.user
+    const chatList = await this.userService.getChatList(userId)
+    return {
+      code: 200,
+      msg: '获取成功',
+      data: chatList
+    }
+  }
 }

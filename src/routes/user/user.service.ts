@@ -20,6 +20,7 @@ import { encryptPwd, compareSyncPwd } from 'src/utils/tools'
 import { UserFriendEntity } from './entities/friend.entity'
 import { AddFriendDto, UpdateFriendDto } from './dto/friend.dto'
 import { SocketGateway } from '../socket/socket.gateway'
+import { ChatListEntity } from './entities/chat_list.entity'
 
 @Injectable()
 export class UserService {
@@ -597,5 +598,81 @@ export class UserService {
       code: 200,
       msg: '删除成功'
     }
+  }
+
+  // 创建聊天列表
+  async createChatList(userId: number, friendId: number) {
+    // 检查好友关系是否存在
+    const friend = await this.entityManager.findOne(UserFriendEntity, {
+      where: [
+        { userId, friendId, status: '1' },
+        { userId: friendId, friendId: userId, status: '1' }
+      ]
+    })
+
+    if (!friend) {
+      return {
+        code: 400,
+        msg: '请先添加对方为好友'
+      }
+    }
+
+    // 检查聊天列表是否已存在
+    const existingChat = await this.entityManager.findOne(ChatListEntity, {
+      where: [
+        { userId, friendId },
+        { userId: friendId, friendId: userId }
+      ]
+    })
+
+    if (existingChat) {
+      return {
+        code: 400,
+        msg: '聊天已存在'
+      }
+    }
+
+    // 创建双向聊天关系
+    const chat1 = new ChatListEntity()
+    chat1.userId = userId
+    chat1.friendId = friendId
+    chat1.lastMsg = ''
+    chat1.msgState = '0'
+    chat1.lastMsgTime = new Date()
+    chat1.unReadCount = 0
+
+    const chat2 = new ChatListEntity()
+    chat2.userId = friendId
+    chat2.friendId = userId
+    chat2.lastMsg = ''
+    chat2.msgState = '0'
+    chat2.lastMsgTime = new Date()
+    chat2.unReadCount = 0
+
+    await this.entityManager.save(ChatListEntity, [chat1, chat2])
+
+    return {
+      code: 200,
+      msg: '创建成功'
+    }
+  }
+
+  // 获取聊天列表
+  async getChatList(userId: number) {
+    const chatList = await this.entityManager.find(ChatListEntity, {
+      where: { userId },
+      relations: ['friend'],
+      order: {
+        lastMsgTime: 'DESC' // 按最后消息时间倒序排列
+      }
+    })
+
+    // 处理返回数据，移除敏感信息
+    return chatList.map((chat) => {
+      if (chat.friend) {
+        chat.friend.password = undefined
+      }
+      return chat
+    })
   }
 }
