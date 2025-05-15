@@ -55,11 +55,36 @@ export class UserEntity {
   })
   state: number
   @Column({
+    type: 'enum',
+    nullable: false,
+    default: '0',
+    enum: ['0', '1']
+  })
+  gender: string
+  @Column({
     type: 'varchar',
     length: 255,
     nullable: true
   })
   avatar: string
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true
+  })
+  desc: string
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true
+  })
+  address: string
+  @Column({
+    type: 'enum',
+    nullable: false,
+    enum: ['0', '1']
+  })
+  online: string
   @Column({
     name: 'created_at',
     type: 'datetime',

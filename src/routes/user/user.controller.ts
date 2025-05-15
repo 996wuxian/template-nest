@@ -167,6 +167,15 @@ export class UserController {
     }
   }
 
+  @Get('info/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('select')
+  @ApiOperation({ summary: '获取用户信息' })
+  async getUserInfo(@Param('id') id: number) {
+    return await this.userService.getUserInfo(id)
+  }
+
   @Post('findAll')
   @UseGuards(AuthGuard('jwt'))
   @RequireLogin()

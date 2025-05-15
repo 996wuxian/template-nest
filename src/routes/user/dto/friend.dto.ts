@@ -12,6 +12,11 @@ export class AddFriendDto {
   @IsString()
   remark?: string
 
+  @ApiProperty({ description: '对方的备注', required: false })
+  @IsOptional()
+  @IsString()
+  friendRemark?: string
+
   @ApiProperty({ description: '描述', required: false })
   @IsOptional()
   @IsString()

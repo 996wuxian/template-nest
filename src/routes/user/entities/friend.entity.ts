@@ -32,6 +32,14 @@ export class UserFriendEntity {
     type: 'varchar',
     length: 50,
     nullable: true,
+    comment: '对方的备注'
+  })
+  friendRemark: string
+
+  @Column({
+    type: 'varchar',
+    length: 50,
+    nullable: true,
     comment: '描述'
   })
   desc: string

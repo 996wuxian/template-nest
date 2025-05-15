@@ -124,4 +124,66 @@ export class CreateUserDto {
     description: '头像'
   })
   avatar: string
+  /**
+   * 在线状态
+   *
+   * @IsOptional()
+   * @IsString()
+   * @ApiProperty(description="在线状态")
+   */
+  @IsOptional()
+  @IsString()
+  @ApiProperty({
+    description: '在线状态',
+    example: '0'
+  })
+  online?: string
+
+  /**
+   * 性别
+   *
+   * @IsOptional()
+   * @IsString()
+   * @ApiProperty(description="性别")
+   */
+  @IsOptional()
+  @IsString()
+  @IsEnum(['0', '1'])
+  @ApiProperty({
+    description: '性别',
+    example: '0',
+    enum: ['0', '1'],
+    default: '0'
+  })
+  gender?: string
+
+  /**
+   * 描述
+   *
+   * @IsOptional()
+   * @IsString()
+   * @ApiProperty(description="描述")
+   */
+  @IsOptional()
+  @IsString()
+  @ApiProperty({
+    description: '描述',
+    example: '这是一段个人描述'
+  })
+  desc?: string
+
+  /**
+   * 地址
+   *
+   * @IsOptional()
+   * @IsString()
+   * @ApiProperty(description="地址")
+   */
+  @IsOptional()
+  @IsString()
+  @ApiProperty({
+    description: '地址',
+    example: '北京市朝阳区'
+  })
+  address?: string
 }

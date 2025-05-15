@@ -94,7 +94,7 @@ async function bootstrap() {
   app.enableCors(corsOptionsDelegate)
 
   // 9 静态资源虚拟路径
-  app.useStaticAssets(join(__dirname, 'uploadFile'), {
+  app.useStaticAssets(join(__dirname, '..', 'uploadFile'), {
     prefix: '/uploadFile'
   })
 

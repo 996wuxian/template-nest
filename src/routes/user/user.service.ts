@@ -313,6 +313,32 @@ export class UserService {
     }
   }
 
+  // 获取用户信息
+  async getUserInfo(id: number) {
+    const user = await this.entityManager.findOne(UserEntity, {
+      where: { id },
+      relations: {
+        roles: true
+      }
+    })
+
+    if (!user) {
+      return {
+        code: 400,
+        msg: '用户不存在'
+      }
+    }
+
+    // 移除密码字段
+    const { password, ...result } = user
+
+    return {
+      code: 200,
+      msg: '获取成功',
+      data: result
+    }
+  }
+
   update(id: number, updateUserDto: UpdateUserDto) {
     return this.entityManager.update(UserEntity, id, updateUserDto)
   }

@@ -50,6 +50,9 @@ export class SocketService {
         platform: createSocketDto.platform
       })
 
+      // 更新用户在线状态
+      await this.userService.update(userId, { online: '1' })
+
       return {
         code: 200,
         msg: '连接成功',
@@ -116,7 +119,7 @@ export class SocketService {
   }
 
   // 根据socketId移除连接
-  removeBySocketId(socketId: string) {
+  async removeBySocketId(socketId: string) {
     const userData = this.socketToUser.get(socketId)
     if (userData) {
       const { userId, platform } = userData
@@ -130,6 +133,8 @@ export class SocketService {
         if (platforms.size === 0) {
           this.connectedClients.delete(userId)
         }
+
+        await this.userService.update(userId, { online: '0' })
       }
 
       // 删除socketId映射
