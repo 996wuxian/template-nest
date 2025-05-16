@@ -551,8 +551,8 @@ export class UserService {
     // 修改查询条件，同时查询正向和反向的好友关系
     const friend = await this.entityManager.findOne(UserFriendEntity, {
       where: [
-        { userId, friendId },
-        { userId: friendId, friendId: userId }
+        { id: updateFriendDto.id, userId, friendId },
+        { id: updateFriendDto.id, userId: friendId, friendId: userId }
       ]
     })
 
@@ -563,16 +563,12 @@ export class UserService {
       }
     }
 
-    // 更新对应方向的好友关系
-    if (friend.userId === userId) {
-      await this.entityManager.update(UserFriendEntity, { userId, friendId }, updateFriendDto)
-    } else {
-      await this.entityManager.update(
-        UserFriendEntity,
-        { userId: friendId, friendId: userId },
-        updateFriendDto
-      )
-    }
+    // 更新时必须包含id条件
+    await this.entityManager.update(
+      UserFriendEntity,
+      { id: updateFriendDto.id }, // 只使用id作为更新条件
+      updateFriendDto
+    )
 
     return {
       code: 200,

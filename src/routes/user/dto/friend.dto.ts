@@ -24,6 +24,11 @@ export class AddFriendDto {
 }
 
 export class UpdateFriendDto {
+  @ApiProperty({ description: 'ID' })
+  @IsNotEmpty({ message: 'ID不能为空' })
+  @IsNumber()
+  id: number
+
   @ApiProperty({ description: '好友备注' })
   @IsOptional()
   @IsString()

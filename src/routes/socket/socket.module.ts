@@ -4,6 +4,7 @@ import { SocketGateway } from './socket.gateway'
 import { JwtModule } from '@nestjs/jwt'
 import { jwtConstants } from '../user/jwt/constants'
 import { UserModule } from '../user/user.module'
+import { MessageModule } from '../message/message.module'
 
 @Module({
   imports: [
@@ -11,7 +12,8 @@ import { UserModule } from '../user/user.module'
       secret: jwtConstants.secret,
       signOptions: { expiresIn: '5h' }
     }),
-    forwardRef(() => UserModule)
+    forwardRef(() => UserModule),
+    MessageModule
   ],
   providers: [SocketGateway, SocketService],
   exports: [SocketGateway, SocketService]

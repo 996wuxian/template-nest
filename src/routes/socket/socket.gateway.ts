@@ -11,11 +11,16 @@ import { SocketService } from './socket.service'
 import { CreateSocketDto } from './dto/create-socket.dto'
 import { UpdateSocketDto } from './dto/update-socket.dto'
 import { Server, Socket } from 'socket.io'
+import { MessageService } from '../message/message.service'
 
 @WebSocketGateway()
 export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server
-  constructor(private readonly socketService: SocketService) {}
+  constructor(
+    private readonly socketService: SocketService,
+
+    private readonly messageService: MessageService
+  ) {}
 
   private connectedClients: Set<string> = new Set()
 
@@ -143,20 +148,34 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
       message: data.message
     })
 
-    this.server.to(`user_${data.toUserId}`).emit('receivePrivateMessage', {
-      fromUserId: userData.userId,
-      message: data.message,
-      type: 'text',
-      timestamp: new Date().getTime()
-    })
-
-    const messageData = {
+    // 保存消息到数据库
+    const savedMessage = await this.messageService.create({
       fromUserId: userData.userId,
       toUserId: data.toUserId,
       message: data.message,
-      time: new Date().toLocaleString(),
       type: 'text'
+    })
+
+    // 统一消息格式，使用数据库实体格式
+    const messageData = {
+      id: savedMessage.id,
+      senderId: userData.userId,
+      receiverId: data.toUserId,
+      content: data.message,
+      type: 'text',
+      status: '0',
+      isGroup: false,
+      groupId: null,
+      attachmentUrl: null,
+      cardContent: null,
+      createdAt: savedMessage.createdAt,
+      updatedAt: savedMessage.updatedAt,
+      sender: savedMessage.sender,
+      receiver: savedMessage.receiver
     }
+
+    // 发送给接收者
+    this.server.to(`user_${data.toUserId}`).emit('receivePrivateMessage', messageData)
 
     // 发送回执给发送者
     client.emit('messageSent', {
@@ -170,5 +189,104 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
       msg: '私聊消息发送成功',
       data: messageData
     }
+  }
+
+  // 获取消息历史记录
+  @SubscribeMessage('getMessageHistory')
+  async getMessageHistory(
+    @MessageBody() data: { senderId: number; receiverId: number },
+    @ConnectedSocket() client: Socket
+  ) {
+    // 验证用户是否登录
+    const userData = this.socketService.getUserDataBySocketId(client.id)
+    if (!userData) {
+      return {
+        code: 400,
+        msg: '用户未登录'
+      }
+    }
+
+    // 确保当前用户是发送者或接收者
+    if (userData.userId !== data.senderId && userData.userId !== data.receiverId) {
+      return {
+        code: 403,
+        msg: '无权查看该聊天记录'
+      }
+    }
+
+    try {
+      // 获取消息历史记录
+      const messages = await this.messageService.findMessagesBetweenUsers(
+        data.senderId,
+        data.receiverId
+      )
+      return {
+        code: 200,
+        msg: '获取成功',
+        data: messages
+      }
+    } catch (error) {
+      console.error('获取消息历史记录失败:', error)
+      return {
+        code: 500,
+        msg: '获取消息历史记录失败'
+      }
+    }
+  }
+
+  // 标记单条消息为已读
+  @SubscribeMessage('oneMsgRead')
+  async oneMsgRead(@MessageBody() data: { messageId: number }, @ConnectedSocket() client: Socket) {
+    const userData = this.socketService.getUserDataBySocketId(client.id)
+    if (!userData) {
+      return {
+        code: 400,
+        msg: '用户未登录'
+      }
+    }
+
+    const result = await this.messageService.oneMsgRead(data.messageId, userData.userId)
+
+    // 如果消息标记已读成功，通知发送者
+    if (result.code === 200) {
+      // 获取消息详情以获取发送者ID
+      const message = await this.messageService.findOne(data.messageId)
+      console.log(message, 'message')
+      if (message) {
+        // 向发送者发送消息已读通知
+        this.server.to(`user_${message.senderId}`).emit('messageRead', {
+          messageId: data.messageId,
+          status: '1' // 1表示已读
+        })
+      }
+    }
+
+    return result
+  }
+
+  // 标记与指定用户的所有消息为已读
+  @SubscribeMessage('allMsgRead')
+  async allMsgRead(@MessageBody() data: { fromUserId: number }, @ConnectedSocket() client: Socket) {
+    const userData = this.socketService.getUserDataBySocketId(client.id)
+    if (!userData) {
+      return {
+        code: 400,
+        msg: '用户未登录'
+      }
+    }
+
+    const result = await this.messageService.allMsgRead(userData.userId, data.fromUserId)
+
+    // 如果消息标记已读成功，通知发送者
+    if (result.code === 200) {
+      // 向发送者发送消息已读通知
+      this.server.to(`user_${data.fromUserId}`).emit('messagesAllRead', {
+        status: true, // 1表示已读
+        fromUserId: data.fromUserId,
+        toUserId: userData.userId
+      })
+    }
+
+    return result
   }
 }

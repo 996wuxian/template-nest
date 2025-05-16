@@ -22,7 +22,6 @@ export class UserEntity {
     nullable: false
   })
   username: string
-  @Exclude({ toPlainOnly: true })
   @Column({
     type: 'varchar',
     length: 255,
