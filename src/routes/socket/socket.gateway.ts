@@ -12,6 +12,9 @@ import { CreateSocketDto } from './dto/create-socket.dto'
 import { UpdateSocketDto } from './dto/update-socket.dto'
 import { Server, Socket } from 'socket.io'
 import { MessageService } from '../message/message.service'
+import { InjectEntityManager } from '@nestjs/typeorm'
+import { EntityManager } from 'typeorm'
+import { ChatListEntity } from '../user/entities/chat_list.entity'
 
 @WebSocketGateway()
 export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -23,6 +26,9 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {}
 
   private connectedClients: Set<string> = new Set()
+
+  @InjectEntityManager()
+  entityManager: EntityManager
 
   async handleConnection(client: Socket) {
     this.connectedClients.add(client.id)
@@ -156,6 +162,53 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
       type: 'text'
     })
 
+    // 更新发送者的聊天列表（显示[送达]）
+    await this.entityManager.update(
+      ChatListEntity,
+      { userId: userData.userId, friendId: data.toUserId },
+      {
+        lastMsg: `[送达] ${data.message}`,
+        lastMsgTime: new Date(),
+        unReadCount: 0
+      }
+    )
+
+    // 更新接收者的聊天列表（直接显示消息内容）
+    await this.entityManager.update(
+      ChatListEntity,
+      { userId: data.toUserId, friendId: userData.userId },
+      {
+        lastMsg: data.message,
+        lastMsgTime: new Date(),
+        unReadCount: () => 'un_read_count + 1'
+      }
+    )
+
+    // // 发送聊天列表更新通知给发送者
+    // this.server.to(`user_${userData.userId}`).emit('chatListUpdate', {
+    //   friendId: data.toUserId,
+    //   lastMsg: `[送达] ${data.message}`,
+    //   lastMsgTime: new Date(),
+    //   unReadCount: 0 // 发送者的未读数为0
+    // })
+
+    // // 发送聊天列表更新通知给接收者
+    // this.server.to(`user_${data.toUserId}`).emit('chatListUpdate', {
+    //   friendId: userData.userId,
+    //   lastMsg: data.message,
+    //   lastMsgTime: new Date(),
+    //   unReadCount: await this.entityManager // 获取接收者的未读数
+    //     .createQueryBuilder()
+    //     .select('chat_list.un_read_count')
+    //     .from(ChatListEntity, 'chat_list')
+    //     .where('chat_list.userId = :userId AND chat_list.friendId = :friendId', {
+    //       userId: data.toUserId,
+    //       friendId: userData.userId
+    //     })
+    //     .getRawOne()
+    //     .then((result) => (result ? result.un_read_count : 0))
+    // })
+
     // 统一消息格式，使用数据库实体格式
     const messageData = {
       id: savedMessage.id,
@@ -247,18 +300,51 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const result = await this.messageService.oneMsgRead(data.messageId, userData.userId)
 
-    // 如果消息标记已读成功，通知发送者
-    if (result.code === 200) {
-      // 获取消息详情以获取发送者ID
-      const message = await this.messageService.findOne(data.messageId)
-      console.log(message, 'message')
-      if (message) {
-        // 向发送者发送消息已读通知
-        this.server.to(`user_${message.senderId}`).emit('messageRead', {
-          messageId: data.messageId,
-          status: '1' // 1表示已读
+    // 只有在消息成功标记为已读，且返回了消息数据时才发送通知
+    if (result.code === 200 && result.data) {
+      // 更新聊天列表中的未读消息数
+      await this.entityManager.update(
+        ChatListEntity,
+        {
+          userId: userData.userId,
+          friendId: result.data.senderId
+        },
+        {
+          unReadCount: () => 'un_read_count - 1'
+        }
+      )
+
+      // 发送聊天列表更新通知给接收者
+      const unReadCount = await this.entityManager
+        .createQueryBuilder()
+        .select('chat_list.un_read_count')
+        .from(ChatListEntity, 'chat_list')
+        .where('chat_list.userId = :userId AND chat_list.friendId = :friendId', {
+          userId: userData.userId,
+          friendId: result.data.senderId
         })
-      }
+        .getRawOne()
+        .then((result) => (result ? result.un_read_count : 0))
+
+      const chatList = await this.entityManager.findOne(ChatListEntity, {
+        where: {
+          userId: userData.userId,
+          friendId: result.data.senderId
+        }
+      })
+
+      // this.server.to(`user_${userData.userId}`).emit('chatListUpdate', {
+      //   friendId: result.data.senderId,
+      //   lastMsg: chatList.lastMsg,
+      //   lastMsgTime: chatList.lastMsgTime,
+      //   unReadCount
+      // })
+
+      // 向发送者发送消息已读通知
+      this.server.to(`user_${result.data.senderId}`).emit('messageRead', {
+        messageId: data.messageId,
+        status: '1' // 1表示已读
+      })
     }
 
     return result
@@ -279,9 +365,36 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // 如果消息标记已读成功，通知发送者
     if (result.code === 200) {
+      // 更新聊天列表中的未读消息数为0
+      await this.entityManager.update(
+        ChatListEntity,
+        {
+          userId: userData.userId,
+          friendId: data.fromUserId
+        },
+        {
+          unReadCount: 0
+        }
+      )
+
+      const chatList = await this.entityManager.findOne(ChatListEntity, {
+        where: {
+          userId: userData.userId,
+          friendId: data.fromUserId
+        }
+      })
+
+      // 发送聊天列表更新通知给接收者
+      // this.server.to(`user_${userData.userId}`).emit('chatListUpdate', {
+      //   friendId: data.fromUserId,
+      //   lastMsg: chatList.lastMsg,
+      //   lastMsgTime: chatList.lastMsgTime,
+      //   unReadCount: 0
+      // })
+
       // 向发送者发送消息已读通知
       this.server.to(`user_${data.fromUserId}`).emit('messagesAllRead', {
-        status: true, // 1表示已读
+        status: true,
         fromUserId: data.fromUserId,
         toUserId: userData.userId
       })

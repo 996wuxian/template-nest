@@ -28,14 +28,6 @@ export class ChatListEntity {
   lastMsg: string
 
   @Column({
-    type: 'enum',
-    enum: ['0', '1'],
-    default: '0',
-    comment: '消息状态 0-未读 1-已读'
-  })
-  msgState: '0' | '1'
-
-  @Column({
     name: 'last_msg_time',
     type: 'datetime',
     comment: '最后一条消息时间'

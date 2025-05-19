@@ -389,10 +389,14 @@ export class UserService {
       }
     }
 
+    // 检查是否已存在好友关系（包括双向关系）
     const existFriend = await this.entityManager.findOne(UserFriendEntity, {
-      where: {
-        userId,
-        friendId: addFriendDto.friendId
+      where: [
+        { userId, friendId: addFriendDto.friendId },
+        { userId: addFriendDto.friendId, friendId: userId }
+      ],
+      order: {
+        createdAt: 'DESC' // 获取最新的一条记录
       }
     })
 
@@ -411,15 +415,37 @@ export class UserService {
           }
         case '2':
           // 如果是已删除状态，允许重新添加
-          existFriend.status = '0'
-          existFriend.remark = addFriendDto.remark
-          await this.entityManager.save(UserFriendEntity, existFriend)
+          // 判断当前用户是发送者还是接收者
+          if (existFriend.userId === userId) {
+            existFriend.status = '0'
+            existFriend.remark = addFriendDto.remark
+            await this.entityManager.save(UserFriendEntity, existFriend)
+          } else {
+            // 如果当前用户是之前的接收者，创建新的请求
+            const newFriendRequest = new UserFriendEntity()
+            newFriendRequest.userId = userId
+            newFriendRequest.friendId = addFriendDto.friendId
+            newFriendRequest.remark = addFriendDto.remark
+            newFriendRequest.desc = addFriendDto.desc
+            newFriendRequest.status = '0'
+            await this.entityManager.save(UserFriendEntity, newFriendRequest)
+          }
           break
         case '3':
           return {
             code: 400,
             msg: '对方已将您拉黑'
           }
+        case '4':
+          // 如果是已拒绝状态，创建新的请求
+          const newRequest = new UserFriendEntity()
+          newRequest.userId = userId
+          newRequest.friendId = addFriendDto.friendId
+          newRequest.remark = addFriendDto.remark
+          newRequest.desc = addFriendDto.desc
+          newRequest.status = '0'
+          await this.entityManager.save(UserFriendEntity, newRequest)
+          break
       }
     }
 
@@ -440,7 +466,7 @@ export class UserService {
     console.log(addFriendDto.remark, 'addFriendDto.remark')
 
     // 通过 socket 发送好友请求通知
-    this.socketGateway.server.emit('systemMessage', {
+    this.socketGateway.server.to(`user_${addFriendDto.friendId}`).emit('systemMessage', {
       type: 'friendRequest',
       targetUserId: addFriendDto.friendId, // 接收者ID
       data: {
@@ -633,7 +659,6 @@ export class UserService {
     chat1.userId = userId
     chat1.friendId = friendId
     chat1.lastMsg = ''
-    chat1.msgState = '0'
     chat1.lastMsgTime = new Date()
     chat1.unReadCount = 0
 
@@ -641,7 +666,6 @@ export class UserService {
     chat2.userId = friendId
     chat2.friendId = userId
     chat2.lastMsg = ''
-    chat2.msgState = '0'
     chat2.lastMsgTime = new Date()
     chat2.unReadCount = 0
 
@@ -659,7 +683,8 @@ export class UserService {
       where: { userId },
       relations: ['friend'],
       order: {
-        lastMsgTime: 'DESC' // 按最后消息时间倒序排列
+        unReadCount: 'DESC', // 首先按未读数降序
+        lastMsgTime: 'DESC' // 然后按最后消息时间降序
       }
     })
 

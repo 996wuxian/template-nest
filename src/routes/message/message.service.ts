@@ -16,7 +16,11 @@ export class MessageService {
     message.type = createMessageDto.type || 'text'
     message.status = '0'
 
-    return this.entityManager.save(MessageEntity, message)
+    const savedMessage = await this.entityManager.save(MessageEntity, message)
+    return this.entityManager.findOne(MessageEntity, {
+      where: { id: savedMessage.id },
+      relations: ['sender', 'receiver']
+    })
   }
 
   async findMessagesBetweenUsers(senderId: number, receiverId: number) {
@@ -70,7 +74,11 @@ export class MessageService {
 
       return {
         code: 200,
-        msg: '消息已标记为已读'
+        msg: '消息已标记为已读',
+        data: {
+          ...message,
+          status: '1'
+        }
       }
     } catch (error) {
       console.error('标记消息已读失败:', error)
