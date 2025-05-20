@@ -24,6 +24,8 @@ import { AuthGuard } from '@nestjs/passport'
 
 import { RequireLogin, RequirePermission } from '../../guard/custom-decorator'
 import { AddFriendDto, UpdateFriendDto } from './dto/friend.dto'
+import { join } from 'path'
+import * as fs from 'fs'
 
 @Controller('api/user')
 @ApiTags('用户')
@@ -265,6 +267,26 @@ export class UserController {
       code: 200,
       msg: '获取成功',
       data: chatList
+    }
+  }
+
+  // 获取emoji表情列表
+  @Get('emoji/list')
+  @ApiOperation({ summary: '获取emoji表情列表' })
+  async getEmojiList() {
+    const emojiDir = join(__dirname, '../../../emoji')
+    const files = await fs.promises.readdir(emojiDir)
+    const emojiList = files
+      .filter((file) => file.endsWith('.gif'))
+      .map((file) => ({
+        name: file.replace('.gif', ''),
+        url: `http://localhost:9528/emoji/${file}`
+      }))
+
+    return {
+      code: 200,
+      msg: '获取成功',
+      data: emojiList
     }
   }
 }

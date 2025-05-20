@@ -98,6 +98,11 @@ async function bootstrap() {
     prefix: '/uploadFile'
   })
 
+  // 添加emoji静态资源访问
+  app.useStaticAssets(join(__dirname, '..', 'emoji'), {
+    prefix: '/emoji'
+  })
+
   // 启用 WebSocket
   app.useWebSocketAdapter(new IoAdapter(app))
 
