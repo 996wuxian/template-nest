@@ -71,6 +71,20 @@ export class MessageEntity {
   })
   groupId: number
 
+  @Column({
+    type: 'boolean',
+    default: false,
+    comment: '发送者是否删除'
+  })
+  senderDeleted: boolean
+
+  @Column({
+    type: 'boolean',
+    default: false,
+    comment: '接收者是否删除'
+  })
+  receiverDeleted: boolean
+
   @CreateDateColumn()
   createdAt: Date
 

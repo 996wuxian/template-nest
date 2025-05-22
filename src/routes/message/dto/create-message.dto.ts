@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString, IsOptional } from 'class-validator'
+import { IsNotEmpty, IsNumber, IsString, IsOptional, IsObject } from 'class-validator'
 import { ApiProperty } from '@nestjs/swagger'
 
 export class CreateMessageDto {
@@ -21,4 +21,9 @@ export class CreateMessageDto {
   @IsOptional()
   @ApiProperty({ description: '消息类型', default: 'text' })
   type?: 'text' | 'image' | 'audio' | 'video' | 'file' | 'card'
+
+  @IsObject()
+  @IsOptional()
+  @ApiProperty({ description: '卡片内容' })
+  cardContent?: object
 }

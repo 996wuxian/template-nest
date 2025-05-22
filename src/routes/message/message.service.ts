@@ -14,6 +14,7 @@ export class MessageService {
     message.receiverId = createMessageDto.toUserId
     message.content = createMessageDto.message
     message.type = createMessageDto.type || 'text'
+    message.cardContent = createMessageDto.cardContent || {}
     message.status = '0'
 
     const savedMessage = await this.entityManager.save(MessageEntity, message)
@@ -23,21 +24,36 @@ export class MessageService {
     })
   }
 
-  async findMessagesBetweenUsers(senderId: number, receiverId: number) {
-    // 查询双向的消息记录
-    const messages = await this.entityManager.find(MessageEntity, {
+  async findMessagesBetweenUsers(
+    senderId: number,
+    receiverId: number,
+    page: number = 1,
+    pageSize: number = 20
+  ) {
+    // 查询双向的消息记录，并过滤掉已删除的消息
+    const [messages, total] = await this.entityManager.findAndCount(MessageEntity, {
       where: [
-        { senderId, receiverId },
-        { senderId: receiverId, receiverId: senderId }
+        {
+          senderId,
+          receiverId,
+          senderDeleted: false
+        },
+        {
+          senderId: receiverId,
+          receiverId: senderId,
+          receiverDeleted: false
+        }
       ],
       order: {
         createdAt: 'ASC' // 按时间升序排列
       },
-      relations: ['sender', 'receiver'] // 关联用户信息
+      relations: ['sender', 'receiver'], // 关联用户信息
+      skip: (page - 1) * pageSize,
+      take: pageSize
     })
 
     // 处理返回数据，移除敏感信息
-    return messages.map((message) => {
+    const processedMessages = messages.map((message) => {
       if (message.sender) {
         message.sender.password = undefined
       }
@@ -46,8 +62,19 @@ export class MessageService {
       }
       return message
     })
-  }
 
+    return {
+      code: 200,
+      data: {
+        list: processedMessages,
+        pagination: {
+          current: page,
+          pageSize: pageSize,
+          total: total
+        }
+      }
+    }
+  }
   // 将指定消息设置为已读
   async oneMsgRead(messageId: number, userId: number) {
     try {
@@ -108,6 +135,59 @@ export class MessageService {
       }
     } catch (error) {
       console.error('标记所有消息已读失败:', error)
+      return {
+        code: 500,
+        msg: '操作失败'
+      }
+    }
+  }
+
+  async updateDeleteStatus(messageId: number, userId: number) {
+    try {
+      const message = await this.entityManager.findOne(MessageEntity, {
+        where: { id: messageId }
+      })
+
+      if (!message) {
+        return {
+          code: 404,
+          msg: '消息不存在'
+        }
+      }
+
+      // 判断用户是发送者还是接收者
+      if (message.senderId !== userId && message.receiverId !== userId) {
+        return {
+          code: 403,
+          msg: '无权操作此消息'
+        }
+      }
+
+      const updateData =
+        message.senderId === userId ? { senderDeleted: true } : { receiverDeleted: true }
+
+      await this.entityManager.update(MessageEntity, messageId, updateData)
+
+      // 如果双方都删除了消息，可以考虑物理删除
+      const updatedMessage = await this.entityManager.findOne(MessageEntity, {
+        where: { id: messageId }
+      })
+
+      if (updatedMessage.senderDeleted && updatedMessage.receiverDeleted) {
+        await this.entityManager.delete(MessageEntity, messageId)
+        return {
+          code: 200,
+          msg: '消息已完全删除'
+        }
+      }
+
+      return {
+        code: 200,
+        msg: '消息已删除',
+        data: updatedMessage
+      }
+    } catch (error) {
+      console.error('删除消息失败:', error)
       return {
         code: 500,
         msg: '操作失败'

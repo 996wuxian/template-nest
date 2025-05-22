@@ -73,7 +73,6 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const result = await this.socketService.create(socketData, client.id)
-    console.log('🚀 ~ SocketGateway ~ create ~ result:', result)
 
     if (result.code === 200) {
       // 加入用户专属房间
@@ -184,31 +183,6 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     )
 
-    // // 发送聊天列表更新通知给发送者
-    // this.server.to(`user_${userData.userId}`).emit('chatListUpdate', {
-    //   friendId: data.toUserId,
-    //   lastMsg: `[送达] ${data.message}`,
-    //   lastMsgTime: new Date(),
-    //   unReadCount: 0 // 发送者的未读数为0
-    // })
-
-    // // 发送聊天列表更新通知给接收者
-    // this.server.to(`user_${data.toUserId}`).emit('chatListUpdate', {
-    //   friendId: userData.userId,
-    //   lastMsg: data.message,
-    //   lastMsgTime: new Date(),
-    //   unReadCount: await this.entityManager // 获取接收者的未读数
-    //     .createQueryBuilder()
-    //     .select('chat_list.un_read_count')
-    //     .from(ChatListEntity, 'chat_list')
-    //     .where('chat_list.userId = :userId AND chat_list.friendId = :friendId', {
-    //       userId: data.toUserId,
-    //       friendId: userData.userId
-    //     })
-    //     .getRawOne()
-    //     .then((result) => (result ? result.un_read_count : 0))
-    // })
-
     // 统一消息格式，使用数据库实体格式
     const messageData = {
       id: savedMessage.id,
@@ -244,46 +218,100 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  // 获取消息历史记录
-  @SubscribeMessage('getMessageHistory')
-  async getMessageHistory(
-    @MessageBody() data: { senderId: number; receiverId: number },
+  @SubscribeMessage('sendCardMessage')
+  async sendCardMessage(
+    @MessageBody() data: { toUserId: number; message: string; cardContent: any },
     @ConnectedSocket() client: Socket
   ) {
-    // 验证用户是否登录
+    console.log('🚀 ~ SocketGateway ~ data:', data)
+    if (Array.isArray(data)) {
+      data = {
+        toUserId: Number(data[0]),
+        message: data[1],
+        cardContent: data[2]
+      }
+    }
+
     const userData = this.socketService.getUserDataBySocketId(client.id)
     if (!userData) {
       return {
         code: 400,
-        msg: '用户未登录'
+        msg: '发送者未登录'
       }
     }
 
-    // 确保当前用户是发送者或接收者
-    if (userData.userId !== data.senderId && userData.userId !== data.receiverId) {
-      return {
-        code: 403,
-        msg: '无权查看该聊天记录'
+    // 打印接收到的消息
+    console.log('收到卡片消息：', {
+      time: new Date().toLocaleString(),
+      fromUserId: userData.userId,
+      toUserId: data.toUserId,
+      message: data.message,
+      cardContent: data.cardContent
+    })
+
+    // 保存消息到数据库
+    const savedMessage = await this.messageService.create({
+      fromUserId: userData.userId,
+      toUserId: data.toUserId,
+      message: data.message,
+      cardContent: data.cardContent,
+      type: 'card'
+    })
+
+    // 更新发送者的聊天列表（显示[送达]）
+    await this.entityManager.update(
+      ChatListEntity,
+      { userId: userData.userId, friendId: data.toUserId },
+      {
+        lastMsg: `[送达] ${data.message}`,
+        lastMsgTime: new Date(),
+        unReadCount: 0
       }
+    )
+
+    // 更新接收者的聊天列表（直接显示消息内容）
+    await this.entityManager.update(
+      ChatListEntity,
+      { userId: data.toUserId, friendId: userData.userId },
+      {
+        lastMsg: data.message,
+        lastMsgTime: new Date(),
+        unReadCount: () => 'un_read_count + 1'
+      }
+    )
+
+    // 统一消息格式，使用数据库实体格式
+    const messageData = {
+      id: savedMessage.id,
+      senderId: userData.userId,
+      receiverId: data.toUserId,
+      content: data.message,
+      type: 'card',
+      status: '0',
+      isGroup: false,
+      groupId: null,
+      attachmentUrl: null,
+      cardContent: data.cardContent,
+      createdAt: savedMessage.createdAt,
+      updatedAt: savedMessage.updatedAt,
+      sender: savedMessage.sender,
+      receiver: savedMessage.receiver
     }
 
-    try {
-      // 获取消息历史记录
-      const messages = await this.messageService.findMessagesBetweenUsers(
-        data.senderId,
-        data.receiverId
-      )
-      return {
-        code: 200,
-        msg: '获取成功',
-        data: messages
-      }
-    } catch (error) {
-      console.error('获取消息历史记录失败:', error)
-      return {
-        code: 500,
-        msg: '获取消息历史记录失败'
-      }
+    // 发送给接收者
+    this.server.to(`user_${data.toUserId}`).emit('receivePrivateMessage', messageData)
+
+    // 发送回执给发送者
+    client.emit('messageSent', {
+      code: 200,
+      msg: '卡片消息发送成功',
+      data: messageData
+    })
+
+    return {
+      code: 200,
+      msg: '卡片消息发送成功',
+      data: messageData
     }
   }
 
