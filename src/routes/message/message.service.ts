@@ -3,7 +3,7 @@ import { CreateMessageDto } from './dto/create-message.dto'
 import { UpdateMessageDto } from './dto/update-message.dto'
 import { MessageEntity } from './entities/message.entity'
 import { InjectEntityManager } from '@nestjs/typeorm'
-import { EntityManager } from 'typeorm'
+import { EntityManager, Not } from 'typeorm'
 @Injectable()
 export class MessageService {
   @InjectEntityManager()
@@ -36,16 +36,18 @@ export class MessageService {
         {
           senderId,
           receiverId,
-          senderDeleted: false
+          senderDeleted: false,
+          status: Not('2' as '0' | '1' | '2' | '3')
         },
         {
           senderId: receiverId,
           receiverId: senderId,
-          receiverDeleted: false
+          receiverDeleted: false,
+          status: Not('2' as '0' | '1' | '2' | '3')
         }
       ],
       order: {
-        createdAt: 'ASC' // 按时间升序排列
+        createdAt: 'DESC' // 按时间降序排列，最新消息在前
       },
       relations: ['sender', 'receiver'], // 关联用户信息
       skip: (page - 1) * pageSize,
@@ -63,6 +65,13 @@ export class MessageService {
       return message
     })
 
+    // 按时间升序重新排序，保持原有的显示顺序
+    processedMessages.sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    )
+
+    console.log('查询到的消息数量:', messages.length)
+
     return {
       code: 200,
       data: {
@@ -75,6 +84,7 @@ export class MessageService {
       }
     }
   }
+
   // 将指定消息设置为已读
   async oneMsgRead(messageId: number, userId: number) {
     try {
@@ -194,9 +204,59 @@ export class MessageService {
       }
     }
   }
+  // 撤回消息（只有发送者可以撤回自己的消息）
+  async recallMessage(messageId: number, userId: number) {
+    try {
+      const message = await this.entityManager.findOne(MessageEntity, {
+        where: { id: messageId },
+        relations: ['sender', 'receiver']
+      })
 
-  findAll() {
-    return `This action returns all message`
+      if (!message) {
+        return {
+          code: 404,
+          msg: '消息不存在'
+        }
+      }
+
+      // 只有消息发送者才能撤回消息
+      if (message.senderId !== userId) {
+        return {
+          code: 403,
+          msg: '只有发送者可以撤回消息'
+        }
+      }
+
+      // 检查消息发送时间，如果超过30分钟则不允许撤回
+      const now = new Date()
+      const messageTime = new Date(message.createdAt)
+      const timeDiff = now.getTime() - messageTime.getTime()
+
+      if (timeDiff > 1800000) {
+        return {
+          code: 400,
+          msg: '消息发送超过2分钟，无法撤回'
+        }
+      }
+
+      // 更新消息状态为已撤回（使用status字段，设置为'2'表示已撤回）
+      await this.entityManager.update(MessageEntity, messageId, { status: '2' })
+
+      return {
+        code: 200,
+        msg: '消息已撤回',
+        data: {
+          ...message,
+          status: '2'
+        }
+      }
+    } catch (error) {
+      console.error('撤回消息失败:', error)
+      return {
+        code: 500,
+        msg: '操作失败'
+      }
+    }
   }
 
   findOne(id: number) {

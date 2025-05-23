@@ -223,7 +223,6 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { toUserId: number; message: string; cardContent: any },
     @ConnectedSocket() client: Socket
   ) {
-    console.log('🚀 ~ SocketGateway ~ data:', data)
     if (Array.isArray(data)) {
       data = {
         toUserId: Number(data[0]),
@@ -342,32 +341,6 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       )
 
-      // 发送聊天列表更新通知给接收者
-      const unReadCount = await this.entityManager
-        .createQueryBuilder()
-        .select('chat_list.un_read_count')
-        .from(ChatListEntity, 'chat_list')
-        .where('chat_list.userId = :userId AND chat_list.friendId = :friendId', {
-          userId: userData.userId,
-          friendId: result.data.senderId
-        })
-        .getRawOne()
-        .then((result) => (result ? result.un_read_count : 0))
-
-      const chatList = await this.entityManager.findOne(ChatListEntity, {
-        where: {
-          userId: userData.userId,
-          friendId: result.data.senderId
-        }
-      })
-
-      // this.server.to(`user_${userData.userId}`).emit('chatListUpdate', {
-      //   friendId: result.data.senderId,
-      //   lastMsg: chatList.lastMsg,
-      //   lastMsgTime: chatList.lastMsgTime,
-      //   unReadCount
-      // })
-
       // 向发送者发送消息已读通知
       this.server.to(`user_${result.data.senderId}`).emit('messageRead', {
         messageId: data.messageId,
@@ -405,26 +378,79 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       )
 
-      const chatList = await this.entityManager.findOne(ChatListEntity, {
-        where: {
-          userId: userData.userId,
-          friendId: data.fromUserId
-        }
-      })
-
-      // 发送聊天列表更新通知给接收者
-      // this.server.to(`user_${userData.userId}`).emit('chatListUpdate', {
-      //   friendId: data.fromUserId,
-      //   lastMsg: chatList.lastMsg,
-      //   lastMsgTime: chatList.lastMsgTime,
-      //   unReadCount: 0
-      // })
-
       // 向发送者发送消息已读通知
       this.server.to(`user_${data.fromUserId}`).emit('messagesAllRead', {
         status: true,
         fromUserId: data.fromUserId,
         toUserId: userData.userId
+      })
+    }
+
+    return result
+  }
+
+  // 撤回消息
+  @SubscribeMessage('recallMessage')
+  async recallMessage(
+    @MessageBody() data: { messageId: number },
+    @ConnectedSocket() client: Socket
+  ) {
+    const userData = this.socketService.getUserDataBySocketId(client.id)
+    if (!userData) {
+      return {
+        code: 400,
+        msg: '用户未登录'
+      }
+    }
+
+    console.log('收到消息撤回请求：', {
+      time: new Date().toLocaleString(),
+      userId: userData.userId,
+      messageId: data.messageId
+    })
+
+    const result = await this.messageService.recallMessage(data.messageId, userData.userId)
+
+    // 如果消息撤回成功，通知接收者
+    if (result.code === 200 && result.data) {
+      const message = result.data
+
+      // 更新发送者的聊天列表
+      await this.entityManager.update(
+        ChatListEntity,
+        { userId: userData.userId, friendId: message.receiverId },
+        {
+          lastMsg: `[已撤回] 一条消息`,
+          lastMsgTime: new Date()
+        }
+      )
+
+      // 更新接收者的聊天列表
+      await this.entityManager.update(
+        ChatListEntity,
+        { userId: message.receiverId, friendId: userData.userId },
+        {
+          lastMsg: `[已撤回] 一条消息`,
+          lastMsgTime: new Date()
+        }
+      )
+
+      // 向接收者发送消息撤回通知
+      this.server.to(`user_${message.receiverId}`).emit('messageRecalled', {
+        messageId: data.messageId,
+        senderId: userData.userId,
+        receiverId: message.receiverId,
+        time: new Date()
+      })
+
+      // 向发送者发送撤回成功通知
+      client.emit('messageRecallResult', {
+        code: 200,
+        msg: '消息撤回成功',
+        data: {
+          messageId: data.messageId,
+          time: new Date()
+        }
       })
     }
 
