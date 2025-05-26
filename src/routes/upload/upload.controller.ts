@@ -30,11 +30,14 @@ export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
   @Post()
-  @ApiOperation({ summary: '单文件上传' })
+  @ApiOperation({ summary: '文件上传（支持图片、音频、视频、文档）' })
   @RequirePermission('add')
   @UseInterceptors(FileInterceptor('file', multerConfig))
-  upload(@UploadedFile(FileSizeValidationPipe) file: Express.Multer.File, @Body() body) {
-    return this.uploadService.upload(file)
+  upload(
+    @UploadedFile(FileSizeValidationPipe) file: Express.Multer.File,
+    @Body('type') type: string = 'image'
+  ) {
+    return this.uploadService.upload(file, type)
   }
 
   @Post('uploadFile')

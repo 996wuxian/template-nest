@@ -13,18 +13,21 @@ export class UploadService {
     private readonly uploadRepository: Repository<UploadEntity>
   ) {}
 
-  upload(file: Express.Multer.File) {
+  upload(file: Express.Multer.File, type: string = 'image') {
     if (!file) {
       return {
         code: 400,
-        msg: '错误的文件,请上传jpg|jpeg|png|gif格式的文件'
+        msg: '文件上传失败，请检查文件格式是否正确'
       }
     }
 
     return {
       code: 200,
       data: {
-        url: `http://localhost:${process.env.PORT}/uploadFile/${file.filename}`
+        url: `http://localhost:${process.env.PORT}/uploadFile/${type}/${file.filename}`,
+        type: type,
+        originalName: file.originalname,
+        size: file.size
       },
       msg: 'success'
     }
