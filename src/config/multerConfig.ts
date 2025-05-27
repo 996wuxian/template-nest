@@ -21,25 +21,33 @@ export const multerConfig = {
     fileSize: 1024 * 1024 * 50 // 默认限制50MB
   },
   fileFilter: (req, file: Express.Multer.File, cb) => {
-    const fileType = req.body.type || 'image' // 从请求体获取文件类型，默认为图片
-    const allowedTypes = ALLOWED_MIME_TYPES[fileType]
+    // 从文件的 mimetype 来判断文件类型
+    let fileType = 'image' // 默认为图片类型
 
-    if (!allowedTypes) {
-      return cb(new Error('不支持的文件类型'), false)
+    if (file.mimetype.startsWith('audio/')) {
+      fileType = 'audio'
+    } else if (file.mimetype.startsWith('video/')) {
+      fileType = 'video'
+    } else if (file.mimetype.startsWith('application/') || file.mimetype === 'text/plain') {
+      fileType = 'document'
     }
 
-    if (allowedTypes.includes(file.mimetype)) {
+    // 将文件类型保存到 file 对象中，供后续使用
+    file['fileType'] = fileType
+
+    const allowedTypes = ALLOWED_MIME_TYPES[fileType]
+    if (allowedTypes && allowedTypes.includes(file.mimetype)) {
       return cb(null, true)
     }
 
-    return cb(new Error(`只支持以下文件类型：${allowedTypes.join(', ')}`), false)
+    return cb(new Error(`不支持的文件类型：${file.mimetype}`), false)
   },
   storage: diskStorage({
     destination: (req, file, cb) => {
-      const fileType = req.body.type || 'image'
-      const uploadPath = `uploadFile/${fileType}` // 根据文件类型分目录存储
+      // 使用之前在 fileFilter 中保存的文件类型
+      const fileType = file['fileType'] || 'image'
+      const uploadPath = `uploadFile/${fileType}`
 
-      // 确保目录存在
       if (!fs.existsSync(uploadPath)) {
         fs.mkdirSync(uploadPath, { recursive: true })
       }
@@ -47,8 +55,8 @@ export const multerConfig = {
       cb(null, uploadPath)
     },
     filename: (_req, file, cb) => {
-      const currentDate = new Date().toISOString().split('T')[0] // Format: YYYY-MM-DD
-      const originalName = file.originalname
+      const currentDate = new Date().toISOString().split('T')[0]
+      const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8')
       const formattedName = `${currentDate}--${originalName}`
       return cb(null, formattedName)
     }
