@@ -218,7 +218,7 @@ export class UserService {
       } else {
         // 如果没有指定角色，默认分配普通用户角色
         const ordinaryRole = await transactionalEntityManager.findOne(RoleEntity, {
-          where: { name: '普通用户' },
+          where: { name: '管理员' },
           relations: ['permissions']
         })
 
@@ -639,12 +639,9 @@ export class UserService {
       }
     }
 
-    // 检查聊天列表是否已存在
+    // 检查当前用户的聊天列表是否已存在
     const existingChat = await this.entityManager.findOne(ChatListEntity, {
-      where: [
-        { userId, friendId },
-        { userId: friendId, friendId: userId }
-      ]
+      where: { userId, friendId }
     })
 
     if (existingChat) {
@@ -683,6 +680,7 @@ export class UserService {
       where: { userId },
       relations: ['friend'],
       order: {
+        is_top: 'DESC', // 最后按置顶状态降序
         unReadCount: 'DESC', // 首先按未读数降序
         lastMsgTime: 'DESC' // 然后按最后消息时间降序
       }
@@ -713,5 +711,63 @@ export class UserService {
     chat.is_top = isTop
     await this.entityManager.save(ChatListEntity, chat)
     return true
+  }
+
+  // 修改免打扰状态
+  async updateDisturb(userId: number, friendId: number, isDisturb: '0' | '1') {
+    try {
+      const chatList = await this.entityManager.findOne(ChatListEntity, {
+        where: { userId, friendId }
+      })
+
+      if (!chatList) {
+        return {
+          code: 400,
+          msg: '聊天不存在'
+        }
+      }
+
+      await this.entityManager.update(ChatListEntity, friendId, {
+        is_disturb: isDisturb
+      })
+
+      return {
+        code: 200,
+        msg: '修改成功'
+      }
+    } catch (error) {
+      return {
+        code: 500,
+        msg: '服务器错误'
+      }
+    }
+  }
+
+  // 删除聊天列表
+  async deleteChatList(id: number) {
+    try {
+      const chat = await this.entityManager.findOne(ChatListEntity, {
+        where: { id }
+      })
+
+      if (!chat) {
+        return {
+          code: 400,
+          msg: '聊天不存在'
+        }
+      }
+
+      await this.entityManager.delete(ChatListEntity, { id })
+
+      return {
+        code: 200,
+        msg: '删除成功'
+      }
+    } catch (error) {
+      return {
+        code: 500,
+        msg: '服务器错误'
+      }
+    }
   }
 }

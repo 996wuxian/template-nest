@@ -290,20 +290,15 @@ export class UserController {
     }
   }
 
-  // 获取聊天列表
   @Patch('updateChatTop/:friendId')
   @UseGuards(AuthGuard('jwt'))
   @RequireLogin()
   @RequirePermission('update')
   @ApiOperation({ summary: '修改聊天列表置顶状态' })
   async updateChatTop(@Req() req, @Param('friendId') friendId: number, @Body() body) {
-    console.log('🚀 ~ UserController ~ updateChatTop ~ friendId:', friendId)
     const userId = req.user
-    console.log('🚀 ~ UserController ~ updateChatTop ~ userId:', userId)
     const { isTop } = body
     const res = await this.userService.updateChatTop(userId, friendId, isTop)
-    console.log('🚀 ~ UserController ~ updateChatTop ~ res:', res)
-    console.log('🚀 ~ UserController ~ updateChatTop ~ isTop:', isTop)
     if (res) {
       return {
         code: 200,
@@ -315,5 +310,28 @@ export class UserController {
         msg: '修改失败'
       }
     }
+  }
+
+  @Patch('disturb/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('update')
+  @ApiOperation({ summary: '修改聊天免打扰状态' })
+  async updateDisturb(
+    @Param('id') chatId: number,
+    @Body('is_disturb') isDisturb: '0' | '1',
+    @Req() req
+  ) {
+    const userId = req.user
+    return await this.userService.updateDisturb(userId, chatId, isDisturb)
+  }
+
+  @Delete('chat/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('delete')
+  @ApiOperation({ summary: '删除聊天' })
+  async deleteChatList(@Param('id') id: number) {
+    return await this.userService.deleteChatList(id)
   }
 }

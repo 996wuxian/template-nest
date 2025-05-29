@@ -43,7 +43,7 @@ export class UserFriendEntity {
     comment: '描述'
   })
   desc: string
-
+  v
   @Column({
     type: 'enum',
     enum: ['0', '1', '2', '3', '4'],
