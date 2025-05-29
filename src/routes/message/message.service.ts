@@ -16,6 +16,11 @@ export class MessageService {
     message.type = createMessageDto.type || 'text'
     message.cardContent = createMessageDto.cardContent || {}
     message.status = '0'
+    if (createMessageDto.type === 'card') {
+      if (createMessageDto.cardContent?.type === 'document') {
+        message.fileStatus = 'uploaded'
+      }
+    }
 
     const savedMessage = await this.entityManager.save(MessageEntity, message)
     return this.entityManager.findOne(MessageEntity, {
@@ -69,8 +74,6 @@ export class MessageService {
     processedMessages.sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     )
-
-    console.log('查询到的消息数量:', messages.length)
 
     return {
       code: 200,
@@ -259,19 +262,43 @@ export class MessageService {
     }
   }
 
-  findOne(id: number) {
-    return this.entityManager.findOne(MessageEntity, {
-      where: {
-        id
+  // 添加更新文件状态的方法
+  async updateFileStatus(messageId: number) {
+    try {
+      const message = await this.entityManager.findOne(MessageEntity, {
+        where: { id: messageId }
+      })
+
+      if (!message) {
+        return {
+          code: 404,
+          msg: '消息不存在'
+        }
       }
-    })
-  }
 
-  update(id: number, updateMessageDto: UpdateMessageDto) {
-    return `This action updates a #${id} message`
-  }
+      if (!message.fileStatus) {
+        return {
+          code: 400,
+          msg: '该消息不是文件类型'
+        }
+      }
 
-  remove(id: number) {
-    return `This action removes a #${id} message`
+      await this.entityManager.update(MessageEntity, messageId, { fileStatus: 'downloaded' })
+
+      return {
+        code: 200,
+        msg: '文件状态更新成功',
+        data: {
+          ...message,
+          fileStatus: 'downloaded'
+        }
+      }
+    } catch (error) {
+      console.error('更新文件状态失败:', error)
+      return {
+        code: 500,
+        msg: '操作失败'
+      }
+    }
   }
 }

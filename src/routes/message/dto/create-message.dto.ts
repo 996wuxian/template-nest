@@ -1,6 +1,15 @@
 import { IsNotEmpty, IsNumber, IsString, IsOptional, IsObject } from 'class-validator'
 import { ApiProperty } from '@nestjs/swagger'
 
+interface CardContent {
+  type: string
+  url: string
+  fileType: string
+  localPath: string
+  size: number
+  name: string
+}
+
 export class CreateMessageDto {
   @IsNumber()
   @IsNotEmpty()
@@ -25,5 +34,5 @@ export class CreateMessageDto {
   @IsObject()
   @IsOptional()
   @ApiProperty({ description: '卡片内容' })
-  cardContent?: object
+  cardContent?: CardContent
 }

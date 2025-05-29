@@ -53,9 +53,9 @@ export class MessageEntity {
     type: 'varchar',
     length: 255,
     nullable: true,
-    comment: '附件URL'
+    comment: '文件状态'
   })
-  attachmentUrl: string
+  fileStatus: 'uploaded' | 'downloaded'
 
   @Column({
     type: 'boolean',

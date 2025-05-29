@@ -696,4 +696,22 @@ export class UserService {
       return chat
     })
   }
+
+  // 修改聊天列表置顶状态
+  async updateChatTop(userId: number, friendId: number, isTop: '0' | '1') {
+    const chat = await this.entityManager.findOne(ChatListEntity, {
+      where: { userId, friendId }
+    })
+
+    if (!chat) {
+      return {
+        code: 400,
+        msg: '聊天不存在'
+      }
+    }
+
+    chat.is_top = isTop
+    await this.entityManager.save(ChatListEntity, chat)
+    return true
+  }
 }

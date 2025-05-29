@@ -289,4 +289,31 @@ export class UserController {
       data: emojiList
     }
   }
+
+  // 获取聊天列表
+  @Patch('updateChatTop/:friendId')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('update')
+  @ApiOperation({ summary: '修改聊天列表置顶状态' })
+  async updateChatTop(@Req() req, @Param('friendId') friendId: number, @Body() body) {
+    console.log('🚀 ~ UserController ~ updateChatTop ~ friendId:', friendId)
+    const userId = req.user
+    console.log('🚀 ~ UserController ~ updateChatTop ~ userId:', userId)
+    const { isTop } = body
+    const res = await this.userService.updateChatTop(userId, friendId, isTop)
+    console.log('🚀 ~ UserController ~ updateChatTop ~ res:', res)
+    console.log('🚀 ~ UserController ~ updateChatTop ~ isTop:', isTop)
+    if (res) {
+      return {
+        code: 200,
+        msg: '修改成功'
+      }
+    } else {
+      return {
+        code: 500,
+        msg: '修改失败'
+      }
+    }
+  }
 }

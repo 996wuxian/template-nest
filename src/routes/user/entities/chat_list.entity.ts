@@ -42,6 +42,24 @@ export class ChatListEntity {
   })
   unReadCount: number
 
+  @Column({
+    name: 'is_top',
+    type: 'enum',
+    default: '0',
+    comment: '是否置顶 0-否 1-是',
+    enum: ['0', '1']
+  })
+  is_top: '0' | '1'
+
+  @Column({
+    name: 'is_disturb',
+    type: 'enum',
+    default: '0',
+    comment: '是否免打扰 0-否 1-是',
+    enum: ['0', '1']
+  })
+  is_disturb: '0' | '1'
+
   @CreateDateColumn()
   createdAt: Date
 

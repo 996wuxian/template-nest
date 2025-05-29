@@ -28,11 +28,6 @@ export class MessageController {
     return this.messageService.findMessagesBetweenUsers(+senderId, +receiverId, page, pageSize)
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.messageService.findOne(+id)
-  }
-
   @Patch('delete/:id')
   @UseGuards(AuthGuard('jwt'))
   @RequireLogin()
@@ -42,8 +37,10 @@ export class MessageController {
     return this.messageService.updateDeleteStatus(+id, body.userId)
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.messageService.remove(+id)
+  @Patch('fileStatus/:id')
+  @ApiOperation({ summary: '更新文件下载状态' })
+  @RequirePermission('update')
+  async updateFileStatus(@Param('id') id: string) {
+    return this.messageService.updateFileStatus(+id)
   }
 }
