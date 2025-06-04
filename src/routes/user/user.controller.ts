@@ -334,4 +334,24 @@ export class UserController {
   async deleteChatList(@Param('id') id: number) {
     return await this.userService.deleteChatList(id)
   }
+
+  @Post('blacklist/:friendId')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('update')
+  @ApiOperation({ summary: '将好友拉入黑名单' })
+  async blacklistFriend(@Req() req, @Param('friendId') friendId: number) {
+    const userId = req.user
+    return await this.userService.blacklistFriend(userId, friendId)
+  }
+
+  @Post('unblacklist/:friendId')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('update')
+  @ApiOperation({ summary: '将好友从黑名单中移除' })
+  async unblacklistFriend(@Req() req, @Param('friendId') friendId: number) {
+    const userId = req.user
+    return await this.userService.unblacklistFriend(userId, friendId)
+  }
 }

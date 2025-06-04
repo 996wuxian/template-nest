@@ -38,4 +38,9 @@ export class UpdateFriendDto {
   @IsOptional()
   @IsString()
   status?: '0' | '1' | '2' | '3' | '4'
+
+  @ApiProperty({ description: '拉黑操作执行者ID', required: false })
+  @IsOptional()
+  @IsNumber()
+  blacklistBy?: number
 }

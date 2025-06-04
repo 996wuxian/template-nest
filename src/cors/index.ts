@@ -1,6 +1,11 @@
 import { Request } from 'express'
 //设置允许访问的域名
-const allowlist = ['http://localhost:9527', 'http://localhost:5174', 'http://localhost:9528']
+const allowlist = [
+  'http://localhost:9527',
+  'http://localhost:5174',
+  'http://localhost:9528',
+  'http://192.168.2.94:9528'
+]
 const corsOptionsDelegate = (req: Request, callback) => {
   let corsOptions
   if (allowlist.indexOf(req.header('Origin')) !== -1) {

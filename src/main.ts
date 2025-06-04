@@ -106,7 +106,7 @@ async function bootstrap() {
   // 启用 WebSocket
   app.useWebSocketAdapter(new IoAdapter(app))
 
-  // 2
+  // 2 '192.168.2.94'
   await app.listen(PORT, () => {
     logger.log(`服务已经启动,接口请访问:http://localhost:${PORT}/${PREFIX}`)
   })

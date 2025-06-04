@@ -52,6 +52,20 @@ export class UserFriendEntity {
   })
   status: '0' | '1' | '2' | '3' | '4'
 
+  @Column({
+    type: 'int',
+    nullable: true,
+    comment: '添加操作执行者ID（当status为0时有效）'
+  })
+  addBy: number
+
+  @Column({
+    type: 'int',
+    nullable: true,
+    comment: '拉黑操作执行者ID（当status为3时有效）'
+  })
+  blacklistBy: number
+
   @CreateDateColumn()
   createdAt: Date
 

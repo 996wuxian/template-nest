@@ -455,15 +455,12 @@ export class UserService {
     chatList.remark = addFriendDto.remark
     chatList.desc = addFriendDto.desc
     chatList.status = '0'
+    chatList.addBy = userId
 
     await this.entityManager.save(UserFriendEntity, chatList)
 
     // 获取发送者的用户信息
     const sender = await this.findOneOfById(userId)
-
-    console.log(userId, 'userId')
-    console.log(sender, 'sender')
-    console.log(addFriendDto.remark, 'addFriendDto.remark')
 
     // 通过 socket 发送好友请求通知
     this.socketGateway.server.to(`user_${addFriendDto.friendId}`).emit('systemMessage', {
@@ -485,7 +482,10 @@ export class UserService {
 
   // 获取好友列表
   async getFriendList(userId: number, type?: 'notice' | 'friend' | 'black' | 'all') {
+    console.log('🚀 ~ UserService ~ getFriendList ~ type:', type)
     if (!type || type === 'all') {
+      console.log('123123')
+
       // 如果不传type或type为all，返回所有类型的列表
       const [noticeList, friendList, blackList] = await Promise.all([
         this.getFriendListByType(userId, 'notice'),
@@ -519,6 +519,8 @@ export class UserService {
       case 'notice':
         // 待确认和已拒绝的列表
         whereConditions = [
+          { userId: userId, status: '0' }, // 待确认
+          { userId: userId, status: '4' }, // 已拒绝
           { friendId: userId, status: '0' }, // 待确认
           { friendId: userId, status: '4' } // 已拒绝
         ]
@@ -531,11 +533,11 @@ export class UserService {
         ]
         break
       case 'black':
-        // 黑名单列表
-        whereConditions = [
-          { userId, status: '3' },
-          { friendId: userId, status: '3' }
-        ]
+        // 黑名单列表 - 只显示我拉黑的用户
+        whereConditions = {
+          status: '3',
+          blacklistBy: userId
+        }
         break
     }
 
@@ -554,6 +556,7 @@ export class UserService {
       if (item.friend) {
         item.friend.password = undefined
       }
+
       // 如果当前用户是接收者，对方是发送者
       if (item.friendId === userId) {
         // 创建一个新对象，避免修改原对象
@@ -676,20 +679,64 @@ export class UserService {
 
   // 获取聊天列表
   async getChatList(userId: number) {
-    const chatList = await this.entityManager.find(ChatListEntity, {
+    // 只查询当前用户拉黑的用户ID列表（不包括拉黑当前用户的用户）
+    const blacklistedFriends = await this.entityManager.find(UserFriendEntity, {
+      where: {
+        status: '3',
+        blacklistBy: userId // 只过滤当前用户主动拉黑的好友
+      },
+      select: ['friendId']
+    })
+
+    const blacklistedUserIds = blacklistedFriends.map((friend) => friend.friendId)
+    console.log('当前用户拉黑的用户IDs:', blacklistedUserIds)
+
+    // 查询聊天列表
+    let chatListQuery: any = {
       where: { userId },
       relations: ['friend'],
       order: {
-        is_top: 'DESC', // 最后按置顶状态降序
-        unReadCount: 'DESC', // 首先按未读数降序
-        lastMsgTime: 'DESC' // 然后按最后消息时间降序
+        is_top: 'DESC',
+        unReadCount: 'DESC',
+        lastMsgTime: 'DESC'
       }
+    }
+
+    // 如果有黑名单用户，添加过滤条件
+    if (blacklistedUserIds.length > 0) {
+      chatListQuery.where = {
+        userId,
+        friendId: Not(In(blacklistedUserIds))
+      }
+    }
+
+    const chatList = await this.entityManager.find(ChatListEntity, chatListQuery)
+
+    // 获取所有好友关系，以便添加状态信息
+    const friendRelations = await this.entityManager.find(UserFriendEntity, {
+      where: [
+        { userId, friendId: In(chatList.map((chat) => chat.friendId)) },
+        { friendId: userId, userId: In(chatList.map((chat) => chat.friendId)) }
+      ],
+      select: ['userId', 'friendId', 'status', 'blacklistBy']
     })
 
-    // 处理返回数据，移除敏感信息
+    // 处理返回数据，添加好友状态信息
     return chatList.map((chat) => {
       if (chat.friend) {
         chat.friend.password = undefined
+
+        // 添加好友状态信息
+        const relation = friendRelations.find(
+          (rel) =>
+            (rel.userId === userId && rel.friendId === chat.friendId) ||
+            (rel.friendId === userId && rel.userId === chat.friendId)
+        )
+
+        if (relation) {
+          chat.friend['status'] = relation.status
+          chat.friend['blacklistBy'] = relation.blacklistBy
+        }
       }
       return chat
     })
@@ -768,6 +815,70 @@ export class UserService {
         code: 500,
         msg: '服务器错误'
       }
+    }
+  }
+
+  // 拉黑好友
+  async blacklistFriend(userId: number, friendId: number) {
+    // 检查好友关系是否存在
+    const friend = await this.entityManager.findOne(UserFriendEntity, {
+      where: [
+        { userId, friendId },
+        { userId: friendId, friendId: userId }
+      ]
+    })
+
+    if (!friend) {
+      return {
+        code: 400,
+        msg: '好友关系不存在'
+      }
+    }
+
+    // 更新好友状态为拉黑
+    friend.status = '3'
+    friend.blacklistBy = userId // 记录执行拉黑操作的用户ID
+
+    await this.entityManager.save(UserFriendEntity, friend)
+
+    // 如果存在聊天关系，也需要删除
+    await this.entityManager.delete(ChatListEntity, [
+      { userId, friendId },
+      { userId: friendId, friendId: userId }
+    ])
+
+    return {
+      code: 200,
+      msg: '已将该用户拉入黑名单'
+    }
+  }
+
+  // 取消拉黑好友
+  async unblacklistFriend(userId: number, friendId: number) {
+    // 检查黑名单关系是否存在
+    const blacklist = await this.entityManager.findOne(UserFriendEntity, {
+      where: [
+        { userId, friendId, status: '3', blacklistBy: userId },
+        { userId: friendId, friendId: userId, status: '3', blacklistBy: userId }
+      ]
+    })
+
+    if (!blacklist) {
+      return {
+        code: 400,
+        msg: '该用户不在您的黑名单中'
+      }
+    }
+
+    // 更新状态为普通好友
+    blacklist.status = '1'
+    blacklist.blacklistBy = null
+
+    await this.entityManager.save(UserFriendEntity, blacklist)
+
+    return {
+      code: 200,
+      msg: '已将该用户从黑名单中移除'
     }
   }
 }
