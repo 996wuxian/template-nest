@@ -574,15 +574,13 @@ export class UserService {
 
   // 更新好友信息
   async updateFriend(userId: number, friendId: number, updateFriendDto: UpdateFriendDto) {
-    console.log(userId, 'userId')
-    console.log(friendId, 'friendId')
-    console.log(updateFriendDto, 'updateFriendDto')
     // 修改查询条件，同时查询正向和反向的好友关系
     const friend = await this.entityManager.findOne(UserFriendEntity, {
       where: [
         { id: updateFriendDto.id, userId, friendId },
         { id: updateFriendDto.id, userId: friendId, friendId: userId }
-      ]
+      ],
+      relations: ['user', 'friend']
     })
 
     if (!friend) {
@@ -592,12 +590,39 @@ export class UserService {
       }
     }
 
+    // 保存更新前的状态
+    const oldStatus = friend.status
+
     // 更新时必须包含id条件
     await this.entityManager.update(
       UserFriendEntity,
       { id: updateFriendDto.id }, // 只使用id作为更新条件
       updateFriendDto
     )
+
+    // 如果状态更新为同意(1)或拒绝(4)，且之前的状态是待确认(0)，则发送通知
+    if (
+      updateFriendDto.status &&
+      (updateFriendDto.status === '1' || updateFriendDto.status === '4') &&
+      oldStatus === '0'
+    ) {
+      // 确定通知接收者ID（申请发起人）
+      const notifyUserId = friend.userId === userId ? friend.friendId : friend.userId
+
+      // 获取发送者信息
+      const sender = friend.userId === userId ? friend.user : friend.friend
+
+      // 通过 socket 发送系统消息通知
+      this.socketGateway.server.to(`user_${notifyUserId}`).emit('systemMessage', {
+        type: updateFriendDto.status === '1' ? 'friendAccepted' : 'friendRejected',
+        targetUserId: notifyUserId, // 接收者ID
+        data: {
+          fromUserId: userId,
+          fromUserName: sender.nickname || sender.username,
+          time: new Date()
+        }
+      })
+    }
 
     return {
       code: 200,
