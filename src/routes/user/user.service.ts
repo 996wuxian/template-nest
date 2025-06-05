@@ -680,21 +680,14 @@ export class UserService {
     }
 
     // 创建双向聊天关系
-    const chat1 = new ChatListEntity()
-    chat1.userId = userId
-    chat1.friendId = friendId
-    chat1.lastMsg = ''
-    chat1.lastMsgTime = new Date()
-    chat1.unReadCount = 0
+    const chat = new ChatListEntity()
+    chat.userId = userId
+    chat.friendId = friendId
+    chat.lastMsg = ''
+    chat.lastMsgTime = new Date()
+    chat.unReadCount = 0
 
-    const chat2 = new ChatListEntity()
-    chat2.userId = friendId
-    chat2.friendId = userId
-    chat2.lastMsg = ''
-    chat2.lastMsgTime = new Date()
-    chat2.unReadCount = 0
-
-    await this.entityManager.save(ChatListEntity, [chat1, chat2])
+    await this.entityManager.save(ChatListEntity, [chat])
 
     return {
       code: 200,

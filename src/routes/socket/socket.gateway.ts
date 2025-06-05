@@ -161,27 +161,57 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
       type: 'text'
     })
 
-    // 更新发送者的聊天列表（显示[送达]）
-    await this.entityManager.update(
-      ChatListEntity,
-      { userId: userData.userId, friendId: data.toUserId },
-      {
-        lastMsg: `[送达] ${data.message}`,
-        lastMsgTime: new Date(),
-        unReadCount: 0
-      }
-    )
+    // 检查发送者的聊天列表是否存在，不存在则创建
+    const senderChatList = await this.entityManager.findOne(ChatListEntity, {
+      where: { userId: userData.userId, friendId: data.toUserId }
+    })
 
-    // 更新接收者的聊天列表（直接显示消息内容）
-    await this.entityManager.update(
-      ChatListEntity,
-      { userId: data.toUserId, friendId: userData.userId },
-      {
-        lastMsg: data.message,
-        lastMsgTime: new Date(),
-        unReadCount: () => 'un_read_count + 1'
-      }
-    )
+    if (!senderChatList) {
+      const newSenderChat = new ChatListEntity()
+      newSenderChat.userId = userData.userId
+      newSenderChat.friendId = data.toUserId
+      newSenderChat.lastMsg = `[送达] ${data.message}`
+      newSenderChat.lastMsgTime = new Date()
+      newSenderChat.unReadCount = 0
+      await this.entityManager.save(ChatListEntity, newSenderChat)
+    } else {
+      // 更新发送者的聊天列表（显示[送达]）
+      await this.entityManager.update(
+        ChatListEntity,
+        { userId: userData.userId, friendId: data.toUserId },
+        {
+          lastMsg: `[送达] ${data.message}`,
+          lastMsgTime: new Date(),
+          unReadCount: 0
+        }
+      )
+    }
+
+    // 检查接收者的聊天列表是否存在，不存在则创建
+    const receiverChatList = await this.entityManager.findOne(ChatListEntity, {
+      where: { userId: data.toUserId, friendId: userData.userId }
+    })
+
+    if (!receiverChatList) {
+      const newReceiverChat = new ChatListEntity()
+      newReceiverChat.userId = data.toUserId
+      newReceiverChat.friendId = userData.userId
+      newReceiverChat.lastMsg = data.message
+      newReceiverChat.lastMsgTime = new Date()
+      newReceiverChat.unReadCount = 1
+      await this.entityManager.save(ChatListEntity, newReceiverChat)
+    } else {
+      // 更新接收者的聊天列表（直接显示消息内容）
+      await this.entityManager.update(
+        ChatListEntity,
+        { userId: data.toUserId, friendId: userData.userId },
+        {
+          lastMsg: data.message,
+          lastMsgTime: new Date(),
+          unReadCount: () => 'un_read_count + 1'
+        }
+      )
+    }
 
     // 统一消息格式，使用数据库实体格式
     const messageData = {
