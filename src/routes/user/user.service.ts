@@ -21,6 +21,9 @@ import { UserFriendEntity } from './entities/friend.entity'
 import { AddFriendDto, UpdateFriendDto } from './dto/friend.dto'
 import { SocketGateway } from '../socket/socket.gateway'
 import { ChatListEntity } from './entities/chat_list.entity'
+import { GroupEntity } from './entities/group.entity'
+import { GroupMemberEntity } from './entities/group_member.entity'
+import { CreateGroupDto, UpdateGroupDto } from './dto/group.dto'
 
 @Injectable()
 export class UserService {
@@ -897,6 +900,203 @@ export class UserService {
     return {
       code: 200,
       msg: '已将该用户从黑名单中移除'
+    }
+  }
+
+  // 创建群聊
+  async createGroup(createGroupDto: CreateGroupDto) {
+    try {
+      // 验证创建者是否存在
+      const creator = await this.entityManager.findOne(UserEntity, {
+        where: { id: createGroupDto.creatorId }
+      })
+
+      if (!creator) {
+        return {
+          code: 400,
+          msg: '创建者不存在'
+        }
+      }
+
+      // 验证成员是否存在
+      const memberIds = [...new Set([...createGroupDto.memberIds, createGroupDto.creatorId])]
+      const members = await this.entityManager.find(UserEntity, {
+        where: { id: In(memberIds) }
+      })
+
+      if (members.length !== memberIds.length) {
+        return {
+          code: 400,
+          msg: '部分成员不存在'
+        }
+      }
+
+      // 创建群聊
+      const group = new GroupEntity()
+      group.name = createGroupDto.name
+      group.avatar = createGroupDto.avatar
+      group.description = createGroupDto.description
+      group.creatorId = createGroupDto.creatorId
+      group.currentMemberCount = memberIds.length
+
+      // 保存群聊信息
+      const savedGroup = await this.entityManager.save(GroupEntity, group)
+
+      // 创建群成员记录
+      const groupMembers = memberIds.map((userId) => {
+        const member = new GroupMemberEntity()
+        member.groupId = savedGroup.id
+        member.userId = userId
+        member.role = userId === createGroupDto.creatorId ? '0' : '2' // 创建者为群主，其他为普通成员
+        member.joinTime = new Date()
+        return member
+      })
+
+      // 批量保存群成员
+      await this.entityManager.save(GroupMemberEntity, groupMembers)
+
+      // 通过 socket 向所有成员发送群聊创建通知
+      memberIds.forEach((memberId) => {
+        if (memberId !== createGroupDto.creatorId) {
+          // 不给创建者自己发通知
+          this.socketGateway.server.to(`user_${memberId}`).emit('systemMessage', {
+            type: 'groupCreated',
+            targetUserId: memberId,
+            data: {
+              groupId: savedGroup.id,
+              groupName: savedGroup.name,
+              creatorId: createGroupDto.creatorId,
+              creatorName: creator.nickname || creator.username,
+              time: new Date()
+            }
+          })
+        }
+      })
+
+      return {
+        code: 200,
+        msg: '群聊创建成功',
+        data: savedGroup
+      }
+    } catch (error) {
+      console.error('创建群聊失败:', error)
+      return {
+        code: 500,
+        msg: '服务器错误'
+      }
+    }
+  }
+
+  // 获取用户所在的群聊列表
+  async getUserGroups(userId: number) {
+    try {
+      // 查找用户所在的群组成员记录（未退出的）
+      const groupMembers = await this.entityManager.find(GroupMemberEntity, {
+        where: {
+          userId,
+          is_exit: '0' // 未退出的群
+        },
+        relations: ['group']
+      })
+
+      // 提取群组信息并添加用户在群中的角色
+      const groups = groupMembers
+        .map((member) => {
+          const { group, role, is_top, is_disturb, unReadCount } = member
+          return {
+            ...group,
+            role, // 用户在群中的角色
+            is_top, // 是否置顶
+            is_disturb, // 是否免打扰
+            unReadCount // 未读消息数
+          }
+        })
+        .filter((group) => group.is_dismiss === '0') // 过滤掉已解散的群
+
+      return {
+        code: 200,
+        msg: '获取成功',
+        data: groups
+      }
+    } catch (error) {
+      console.error('获取用户群聊列表失败:', error)
+      return {
+        code: 500,
+        msg: '服务器错误'
+      }
+    }
+  }
+
+  // 获取群聊详情
+  async getGroupDetail(groupId: number, userId: number) {
+    try {
+      // 检查群聊是否存在
+      const group = await this.entityManager.findOne(GroupEntity, {
+        where: { id: groupId }
+      })
+
+      if (!group) {
+        return {
+          code: 400,
+          msg: '群聊不存在'
+        }
+      }
+
+      // 检查用户是否是群成员
+      const member = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId,
+          userId,
+          is_exit: '0' // 未退出的
+        }
+      })
+
+      if (!group || !member) {
+        return {
+          code: 403,
+          msg: '您不是该群成员'
+        }
+      }
+
+      // 获取群成员列表
+      const members = await this.entityManager.find(GroupMemberEntity, {
+        where: {
+          groupId,
+          is_exit: '0' // 未退出的成员
+        },
+        relations: ['user']
+      })
+
+      // 处理成员信息，只返回必要的用户信息
+      const memberList = members.map((m) => ({
+        id: m.id,
+        userId: m.userId,
+        nickname: m.nickname || m.user.nickname || m.user.username,
+        avatar: m.user.avatar,
+        role: m.role,
+        joinTime: m.joinTime
+      }))
+
+      // 返回群聊详情和成员列表
+      return {
+        code: 200,
+        msg: '获取成功',
+        data: {
+          group: {
+            ...group,
+            role: member.role, // 当前用户在群中的角色
+            is_top: member.is_top,
+            is_disturb: member.is_disturb
+          },
+          members: memberList
+        }
+      }
+    } catch (error) {
+      console.error('获取群聊详情失败:', error)
+      return {
+        code: 500,
+        msg: '服务器错误'
+      }
     }
   }
 }

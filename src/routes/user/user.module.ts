@@ -7,6 +7,8 @@ import { PermissionEntity } from './entities/permission.entity'
 import { RoleEntity } from './entities/role.entity'
 import { UserFriendEntity } from './entities/friend.entity'
 import { ChatListEntity } from './entities/chat_list.entity'
+import { GroupEntity } from './entities/group.entity'
+import { GroupMemberEntity } from './entities/group_member.entity'
 import { jwtConstants } from './jwt/constants'
 // 注入策略
 import { JwtStrategy } from './jwt/jwt.strategy'
@@ -22,7 +24,9 @@ import { SocketModule } from '../socket/socket.module'
       PermissionEntity,
       RoleEntity,
       UserFriendEntity,
-      ChatListEntity
+      ChatListEntity,
+      GroupEntity,
+      GroupMemberEntity
     ]),
     JwtModule.register({
       secret: jwtConstants.secret,

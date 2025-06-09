@@ -107,7 +107,7 @@ async function bootstrap() {
   app.useWebSocketAdapter(new IoAdapter(app))
 
   // 2 '192.168.2.94'
-  await app.listen(PORT, () => {
+  await app.listen(PORT, '192.168.2.94', () => {
     logger.log(`服务已经启动,接口请访问:http://localhost:${PORT}/${PREFIX}`)
   })
   // logger.log(`swagger文档, 请访问:http://localhost:${PORT}/api-docs`)

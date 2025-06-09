@@ -24,6 +24,7 @@ import { AuthGuard } from '@nestjs/passport'
 
 import { RequireLogin, RequirePermission } from '../../guard/custom-decorator'
 import { AddFriendDto, UpdateFriendDto } from './dto/friend.dto'
+import { CreateGroupDto, UpdateGroupDto } from './dto/group.dto'
 import { join } from 'path'
 import * as fs from 'fs'
 
@@ -280,7 +281,7 @@ export class UserController {
       .filter((file) => file.endsWith('.gif'))
       .map((file) => ({
         name: file.replace('.gif', ''),
-        url: `http://localhost:9528/emoji/${file}`
+        url: `http://192.168.2.94:9528/emoji/${file}`
       }))
 
     return {
@@ -353,5 +354,36 @@ export class UserController {
   async unblacklistFriend(@Req() req, @Param('friendId') friendId: number) {
     const userId = req.user
     return await this.userService.unblacklistFriend(userId, friendId)
+  }
+
+  @Post('group/create')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('add')
+  @ApiOperation({ summary: '创建群聊' })
+  async createGroup(@Req() req, @Body() createGroupDto: CreateGroupDto) {
+    // 使用当前登录用户作为创建者
+    createGroupDto.creatorId = req.user
+    return await this.userService.createGroup(createGroupDto)
+  }
+
+  @Get('group/list')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('select')
+  @ApiOperation({ summary: '获取用户所在的群聊列表' })
+  async getUserGroups(@Req() req) {
+    const userId = req.user
+    return await this.userService.getUserGroups(userId)
+  }
+
+  @Get('group/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('select')
+  @ApiOperation({ summary: '获取群聊详情' })
+  async getGroupDetail(@Req() req, @Param('id') groupId: number) {
+    const userId = req.user
+    return await this.userService.getGroupDetail(groupId, userId)
   }
 }
