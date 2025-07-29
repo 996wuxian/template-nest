@@ -698,69 +698,177 @@ export class UserService {
     }
   }
 
+  // 修改群聊聊天列表状态
+  async updateGroupList(userId: number, groupId: number, status: '0' | '1') {
+    // 检查群是否存在
+    const group = await this.entityManager.findOne(GroupMemberEntity, {
+      where: { userId, groupId }
+    })
+
+    if (!group) {
+      return {
+        code: 400,
+        msg: '请先加群'
+      }
+    }
+
+    // 检查当前用户的聊天列表是否已存在
+    const existingChat = await this.entityManager.findOne(GroupMemberEntity, {
+      where: { userId, groupId }
+    })
+
+    if (existingChat.is_list === '1') {
+      return {
+        code: 400,
+        msg: '群聊已存在列表中'
+      }
+    }
+
+    const list = new GroupMemberEntity()
+    list.is_list = status
+
+    await this.entityManager.update(
+      GroupMemberEntity,
+      {
+        groupId,
+        userId
+      },
+      list
+    )
+
+    return {
+      code: 200,
+      msg: '修改成功'
+    }
+  }
+
   // 获取聊天列表
   async getChatList(userId: number) {
-    // 只查询当前用户拉黑的用户ID列表（不包括拉黑当前用户的用户）
-    const blacklistedFriends = await this.entityManager.find(UserFriendEntity, {
-      where: {
-        status: '3',
-        blacklistBy: userId // 只过滤当前用户主动拉黑的好友
-      },
-      select: ['friendId']
-    })
+    try {
+      // 只查询当前用户拉黑的用户ID列表（不包括拉黑当前用户的用户）
+      const blacklistedFriends = await this.entityManager.find(UserFriendEntity, {
+        where: {
+          status: '3',
+          blacklistBy: userId // 只过滤当前用户主动拉黑的好友
+        },
+        select: ['friendId']
+      })
 
-    const blacklistedUserIds = blacklistedFriends.map((friend) => friend.friendId)
-    console.log('当前用户拉黑的用户IDs:', blacklistedUserIds)
+      const blacklistedUserIds = blacklistedFriends.map((friend) => friend.friendId)
+      console.log('当前用户拉黑的用户IDs:', blacklistedUserIds)
 
-    // 查询聊天列表
-    let chatListQuery: any = {
-      where: { userId },
-      relations: ['friend'],
-      order: {
-        is_top: 'DESC',
-        unReadCount: 'DESC',
-        lastMsgTime: 'DESC'
+      // 查询聊天列表
+      let chatListQuery: any = {
+        where: { userId },
+        relations: ['friend']
       }
-    }
 
-    // 如果有黑名单用户，添加过滤条件
-    if (blacklistedUserIds.length > 0) {
-      chatListQuery.where = {
-        userId,
-        friendId: Not(In(blacklistedUserIds))
-      }
-    }
-
-    const chatList = await this.entityManager.find(ChatListEntity, chatListQuery)
-
-    // 获取所有好友关系，以便添加状态信息
-    const friendRelations = await this.entityManager.find(UserFriendEntity, {
-      where: [
-        { userId, friendId: In(chatList.map((chat) => chat.friendId)) },
-        { friendId: userId, userId: In(chatList.map((chat) => chat.friendId)) }
-      ],
-      select: ['userId', 'friendId', 'status', 'blacklistBy']
-    })
-
-    // 处理返回数据，添加好友状态信息
-    return chatList.map((chat) => {
-      if (chat.friend) {
-        chat.friend.password = undefined
-
-        // 添加好友状态信息
-        const relation = friendRelations.find(
-          (rel) =>
-            (rel.userId === userId && rel.friendId === chat.friendId) ||
-            (rel.friendId === userId && rel.userId === chat.friendId)
-        )
-
-        if (relation) {
-          chat.friend['status'] = relation.status
-          chat.friend['blacklistBy'] = relation.blacklistBy
+      // 如果有黑名单用户，添加过滤条件
+      if (blacklistedUserIds.length > 0) {
+        chatListQuery.where = {
+          userId,
+          friendId: Not(In(blacklistedUserIds))
         }
       }
-      return chat
-    })
+
+      const chatList = await this.entityManager.find(ChatListEntity, chatListQuery)
+
+      // 获取所有好友关系，以便添加状态信息
+      const friendRelations = await this.entityManager.find(UserFriendEntity, {
+        where: [
+          { userId, friendId: In(chatList.map((chat) => chat.friendId)) },
+          { friendId: userId, userId: In(chatList.map((chat) => chat.friendId)) }
+        ],
+        select: ['userId', 'friendId', 'status', 'blacklistBy']
+      })
+
+      // 处理返回数据，添加好友状态信息
+      const processedChatList = chatList.map((chat) => {
+        if (chat.friend) {
+          chat.friend.password = undefined
+
+          // 添加好友状态信息
+          const relation = friendRelations.find(
+            (rel) =>
+              (rel.userId === userId && rel.friendId === chat.friendId) ||
+              (rel.friendId === userId && rel.userId === chat.friendId)
+          )
+
+          if (relation) {
+            chat.friend['status'] = relation.status
+            chat.friend['blacklistBy'] = relation.blacklistBy
+          }
+        }
+        return {
+          ...chat,
+          chatType: 'friend' // 标记为好友聊天
+        }
+      })
+
+      // 查找用户所在的群组成员记录（未退出的且is_list为1的）
+      const groupMembers = await this.entityManager.find(GroupMemberEntity, {
+        where: {
+          userId,
+          is_exit: '0', // 未退出的群
+          is_list: '1' // 在列表中显示的群
+        },
+        relations: ['group']
+      })
+
+      // 提取群组信息并添加用户在群中的角色
+      const groups = groupMembers
+        .map((member) => {
+          const { group, role, is_top, is_disturb, unReadCount } = member
+          if (group.is_dismiss === '0') {
+            // 只处理未解散的群
+            return {
+              id: group.id,
+              name: group.name,
+              username: group.groupNumber,
+              avatar: group.avatar,
+              lastMsg: group.lastMsg,
+              lastMsgTime: group.lastMsgTime,
+              role, // 用户在群中的角色
+              is_top, // 是否置顶
+              is_disturb, // 是否免打扰
+              unReadCount, // 未读消息数
+              chatType: 'group' // 标记为群聊
+            }
+          }
+          return null
+        })
+        .filter(Boolean) // 过滤掉null值
+
+      // 合并好友聊天和群聊列表
+      const combinedList = [...processedChatList, ...groups]
+
+      // 按照置顶-未读数-最后一条消息时间的顺序排序
+      combinedList.sort((a, b) => {
+        // 首先按置顶状态排序
+        if (a.is_top !== b.is_top) {
+          return a.is_top === '1' ? -1 : 1
+        }
+
+        // 然后按未读消息数排序
+        if (a.unReadCount !== b.unReadCount) {
+          return b.unReadCount - a.unReadCount
+        }
+
+        // 最后按最后一条消息时间排序
+        const timeA = a.lastMsgTime ? new Date(a.lastMsgTime).getTime() : 0
+        const timeB = b.lastMsgTime ? new Date(b.lastMsgTime).getTime() : 0
+        return timeB - timeA
+      })
+
+      return combinedList
+    } catch (error) {
+      console.error('获取聊天列表失败:', error)
+      return {
+        code: 500,
+        msg: '服务器错误',
+        error: error.message
+      }
+    }
   }
 
   // 修改聊天列表置顶状态
@@ -931,6 +1039,24 @@ export class UserService {
         }
       }
 
+      // 生成随机8位数群号
+      let groupNumber = ''
+      let isUnique = false
+
+      while (!isUnique) {
+        // 生成8位随机数字
+        groupNumber = Math.floor(10000000 + Math.random() * 90000000).toString()
+
+        // 检查群号是否已存在
+        const existingGroup = await this.entityManager.findOne(GroupEntity, {
+          where: { groupNumber }
+        })
+
+        if (!existingGroup) {
+          isUnique = true
+        }
+      }
+
       // 创建群聊
       const group = new GroupEntity()
       group.name = createGroupDto.name
@@ -938,6 +1064,7 @@ export class UserService {
       group.description = createGroupDto.description
       group.creatorId = createGroupDto.creatorId
       group.currentMemberCount = memberIds.length
+      group.groupNumber = groupNumber // 设置群号
 
       // 保存群聊信息
       const savedGroup = await this.entityManager.save(GroupEntity, group)
@@ -1068,14 +1195,19 @@ export class UserService {
       })
 
       // 处理成员信息，只返回必要的用户信息
-      const memberList = members.map((m) => ({
-        id: m.id,
-        userId: m.userId,
-        nickname: m.nickname || m.user.nickname || m.user.username,
-        avatar: m.user.avatar,
-        role: m.role,
-        joinTime: m.joinTime
-      }))
+      const memberList = members
+        .map((m) => ({
+          id: m.id,
+          userId: m.userId,
+          nickname: m.nickname || m.user.nickname || m.user.username,
+          avatar: m.user.avatar,
+          role: m.role,
+          joinTime: m.joinTime
+        }))
+        .sort((a, b) => {
+          // 按照角色排序：群主(0) -> 管理员(1) -> 普通成员(2)
+          return Number(a.role) - Number(b.role)
+        })
 
       // 返回群聊详情和成员列表
       return {

@@ -24,7 +24,7 @@ export class UploadService {
     return {
       code: 200,
       data: {
-        url: `http://192.168.2.94:${process.env.PORT}/uploadFile/${type}/${file.filename}`,
+        url: `http://localhost:${process.env.PORT}/uploadFile/${type}/${file.filename}`,
         type: type,
         originalName: file.originalname,
         size: file.size

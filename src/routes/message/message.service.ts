@@ -16,6 +16,11 @@ export class MessageService {
     message.type = createMessageDto.type || 'text'
     message.cardContent = createMessageDto.cardContent || {}
     message.status = '0'
+
+    // 添加群聊消息处理
+    message.isGroup = createMessageDto.isGroup || false
+    message.groupId = createMessageDto.groupId || null
+
     if (createMessageDto.type === 'card') {
       if (createMessageDto.cardContent?.type === 'document') {
         message.fileStatus = 'uploaded'
@@ -41,12 +46,14 @@ export class MessageService {
         {
           senderId,
           receiverId,
+          isGroup: false, // 明确指定为私聊消息
           senderDeleted: false,
           status: Not('2' as '0' | '1' | '2' | '3')
         },
         {
           senderId: receiverId,
           receiverId: senderId,
+          isGroup: false, // 明确指定为私聊消息
           receiverDeleted: false,
           status: Not('2' as '0' | '1' | '2' | '3')
         }
@@ -298,6 +305,48 @@ export class MessageService {
       return {
         code: 500,
         msg: '操作失败'
+      }
+    }
+  }
+
+  async findGroupMessages(groupId: number, page: number = 1, pageSize: number = 20) {
+    // 查询指定群聊的消息记录
+    const [messages, total] = await this.entityManager.findAndCount(MessageEntity, {
+      where: {
+        isGroup: true,
+        groupId: groupId,
+        status: Not('2' as '0' | '1' | '2' | '3') // 排除已撤回的消息
+      },
+      order: {
+        createdAt: 'DESC' // 按时间降序排列，最新消息在前
+      },
+      relations: ['sender'], // 关联发送者信息
+      skip: (page - 1) * pageSize,
+      take: pageSize
+    })
+
+    // 处理返回数据，移除敏感信息
+    const processedMessages = messages.map((message) => {
+      if (message.sender) {
+        message.sender.password = undefined
+      }
+      return message
+    })
+
+    // 按时间升序重新排序，保持原有的显示顺序
+    processedMessages.sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    )
+
+    return {
+      code: 200,
+      data: {
+        list: processedMessages,
+        pagination: {
+          current: page,
+          pageSize: pageSize,
+          total: total
+        }
       }
     }
   }

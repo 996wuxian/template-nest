@@ -17,8 +17,10 @@ export class MessageEntity {
   @Column()
   senderId: number
 
-  @Column()
-  receiverId: number
+  @Column({
+    nullable: true
+  })
+  receiverId?: number
 
   @Column({
     type: 'text',

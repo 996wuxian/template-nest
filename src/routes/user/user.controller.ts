@@ -255,6 +255,18 @@ export class UserController {
     return await this.userService.createChatList(userId, friendId)
   }
 
+  // 修改群聊列表状态
+  @Post('group/updateGroupList')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('update')
+  @ApiOperation({ summary: '创建聊天关系' })
+  async updateGroupList(@Req() req, @Body() body) {
+    const userId = req.user
+    const { groupId, status } = body
+    return await this.userService.updateGroupList(userId, groupId, status)
+  }
+
   // 获取聊天列表
   @Get('chat/list')
   @UseGuards(AuthGuard('jwt'))
@@ -281,7 +293,7 @@ export class UserController {
       .filter((file) => file.endsWith('.gif'))
       .map((file) => ({
         name: file.replace('.gif', ''),
-        url: `http://192.168.2.94:9528/emoji/${file}`
+        url: `http://localhost:9528/emoji/${file}`
       }))
 
     return {

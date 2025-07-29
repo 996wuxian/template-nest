@@ -43,4 +43,16 @@ export class MessageController {
   async updateFileStatus(@Param('id') id: string) {
     return this.messageService.updateFileStatus(+id)
   }
+
+  @Get('group/:groupId')
+  @ApiOperation({ summary: '获取群聊消息记录' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: '页码' })
+  @ApiQuery({ name: 'pageSize', required: false, type: Number, description: '每页条数' })
+  async findGroupMessages(
+    @Param('groupId') groupId: string,
+    @Query('page') page: number = 1,
+    @Query('pageSize') pageSize: number = 20
+  ) {
+    return this.messageService.findGroupMessages(+groupId, page, pageSize)
+  }
 }

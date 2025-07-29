@@ -85,6 +85,15 @@ export class GroupMemberEntity {
   })
   is_exit: '0' | '1'
 
+  @Column({
+    name: 'is_list',
+    type: 'enum',
+    default: '0',
+    comment: '是否在列表中 0-否 1-是',
+    enum: ['0', '1']
+  })
+  is_list: '0' | '1'
+
   @CreateDateColumn()
   createdAt: Date
 

@@ -25,6 +25,14 @@ export class GroupEntity {
 
   @Column({
     type: 'varchar',
+    length: 8,
+    comment: '群号（8位随机数）',
+    unique: true
+  })
+  groupNumber: string
+  
+  @Column({
+    type: 'varchar',
     length: 255,
     nullable: true,
     comment: '群头像'

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString, IsOptional, IsObject } from 'class-validator'
+import { IsNotEmpty, IsNumber, IsString, IsOptional, IsObject, IsBoolean } from 'class-validator'
 import { ApiProperty } from '@nestjs/swagger'
 
 interface CardContent {
@@ -17,9 +17,9 @@ export class CreateMessageDto {
   fromUserId: number
 
   @IsNumber()
-  @IsNotEmpty()
+  @IsOptional()
   @ApiProperty({ description: '接收者ID' })
-  toUserId: number
+  toUserId?: number
 
   @IsString()
   @IsNotEmpty()
@@ -35,4 +35,14 @@ export class CreateMessageDto {
   @IsOptional()
   @ApiProperty({ description: '卡片内容' })
   cardContent?: CardContent
+
+  @IsBoolean()
+  @IsOptional()
+  @ApiProperty({ description: '是否为群消息', default: false })
+  isGroup?: boolean
+
+  @IsNumber()
+  @IsOptional()
+  @ApiProperty({ description: '群组ID，如果是群消息' })
+  groupId?: number
 }

@@ -13,8 +13,12 @@ import { UpdateSocketDto } from './dto/update-socket.dto'
 import { Server, Socket } from 'socket.io'
 import { MessageService } from '../message/message.service'
 import { InjectEntityManager } from '@nestjs/typeorm'
-import { EntityManager } from 'typeorm'
+import { EntityManager, Not } from 'typeorm'
 import { ChatListEntity } from '../user/entities/chat_list.entity'
+import { GroupEntity } from '../user/entities/group.entity'
+import { GroupMemberEntity } from '../user/entities/group_member.entity'
+import { UserFriendEntity } from '../user/entities/friend.entity'
+import { UserEntity } from '../user/entities/user.entity'
 
 @WebSocketGateway()
 export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -77,6 +81,24 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (result.code === 200) {
       // 加入用户专属房间
       client.join(`user_${socketData.userId}`)
+      // 获取用户所在的所有群聊并加入对应房间
+      const userGroups = await this.entityManager.find(GroupMemberEntity, {
+        where: {
+          userId: socketData.userId,
+          is_exit: '0' // 未退出的群
+        },
+        relations: ['group']
+      })
+
+      // 加入所有群聊房间
+      userGroups.forEach((member) => {
+        if (member.group && member.group.is_dismiss === '0') {
+          // 群未解散
+          client.join(`group_${member.groupId}`)
+          console.log(`用户 ${socketData.userId} 加入群聊房间: group_${member.groupId}`)
+        }
+      })
+
       console.log(
         '\x1b[32m%s\x1b[0m',
         `用户 ${result.data.userId} 已通过 ${socketData.platform} 端登录`
@@ -126,7 +148,8 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // 发送消息到指定用户
   @SubscribeMessage('sendTextMessage')
   async sendTextMessage(
-    @MessageBody() data: { toUserId: number; message: any },
+    @MessageBody()
+    data: { toUserId?: number; message: any; type?: string; groupId?: number; isGroup?: boolean },
     @ConnectedSocket() client: Socket
   ) {
     console.log('🚀 ~ SocketGateway ~ data:', data)
@@ -145,106 +168,231 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }
 
+    // 判断是否为群聊消息
+    const isGroupMessage = data.isGroup || data.type === 'group'
+    const groupId = data.groupId
+
+    // 如果是私聊消息，检查是否被拉黑
+    if (!isGroupMessage && data.toUserId) {
+      const blacklistCheck = await this.entityManager.findOne(UserFriendEntity, {
+        where: {
+          userId: data.toUserId,
+          friendId: userData.userId,
+          status: '3', // 拉黑状态
+          blacklistBy: data.toUserId // 接收者拉黑了发送者
+        }
+      })
+
+      if (blacklistCheck) {
+        // 发送拉黑提示给发送者
+        client.emit('messageSent', {
+          code: 403,
+          msg: '该用户已经拉黑了你，无法发送消息'
+        })
+
+        return {
+          code: 403,
+          msg: '该用户已经拉黑了你，无法发送消息'
+        }
+      }
+    }
+
     // 打印接收到的消息
-    console.log('收到私聊消息：', {
-      time: new Date().toLocaleString(),
-      fromUserId: userData.userId,
-      toUserId: data.toUserId,
-      message: data.message
-    })
+    if (isGroupMessage) {
+      console.log('收到群聊消息：', {
+        time: new Date().toLocaleString(),
+        fromUserId: userData.userId,
+        groupId: groupId,
+        message: data.message
+      })
+    } else {
+      console.log('收到私聊消息：', {
+        time: new Date().toLocaleString(),
+        fromUserId: userData.userId,
+        toUserId: data.toUserId,
+        message: data.message
+      })
+    }
 
     // 保存消息到数据库
-    const savedMessage = await this.messageService.create({
+    const messageParams: any = {
       fromUserId: userData.userId,
-      toUserId: data.toUserId,
       message: data.message,
       type: 'text'
-    })
+    }
 
-    // 检查发送者的聊天列表是否存在，不存在则创建
-    const senderChatList = await this.entityManager.findOne(ChatListEntity, {
-      where: { userId: userData.userId, friendId: data.toUserId }
-    })
-
-    if (!senderChatList) {
-      const newSenderChat = new ChatListEntity()
-      newSenderChat.userId = userData.userId
-      newSenderChat.friendId = data.toUserId
-      newSenderChat.lastMsg = `[送达] ${data.message}`
-      newSenderChat.lastMsgTime = new Date()
-      newSenderChat.unReadCount = 0
-      await this.entityManager.save(ChatListEntity, newSenderChat)
+    // 根据消息类型设置不同的参数
+    if (isGroupMessage) {
+      // 群聊消息不需要设置接收者ID，但需要设置群组ID和isGroup标志
+      messageParams.isGroup = true
+      messageParams.groupId = groupId
     } else {
-      // 更新发送者的聊天列表（显示[送达]）
+      // 私聊消息需要设置接收者ID
+      messageParams.toUserId = data.toUserId
+    }
+
+    const savedMessage = await this.messageService.create(messageParams)
+
+    if (isGroupMessage) {
+      // 处理群聊消息逻辑
+      // 更新群聊的最后一条消息和时间
+      const senderInfo =
+        savedMessage.sender ||
+        (await this.entityManager.findOne(UserEntity, {
+          where: { id: userData.userId },
+          select: ['id', 'username', 'nickname']
+        }))
+
+      const senderName = senderInfo?.nickname || senderInfo?.username || '未知用户'
+      const messageWithSender = `${senderName}: ${data.message}`
+
+      // 更新群聊的最后一条消息和时间
       await this.entityManager.update(
-        ChatListEntity,
-        { userId: userData.userId, friendId: data.toUserId },
+        GroupEntity,
+        { id: groupId },
         {
-          lastMsg: `[送达] ${data.message}`,
-          lastMsgTime: new Date(),
-          unReadCount: 0
+          lastMsg: messageWithSender,
+          lastMsgTime: new Date()
         }
       )
-    }
 
-    // 检查接收者的聊天列表是否存在，不存在则创建
-    const receiverChatList = await this.entityManager.findOne(ChatListEntity, {
-      where: { userId: data.toUserId, friendId: userData.userId }
-    })
-
-    if (!receiverChatList) {
-      const newReceiverChat = new ChatListEntity()
-      newReceiverChat.userId = data.toUserId
-      newReceiverChat.friendId = userData.userId
-      newReceiverChat.lastMsg = data.message
-      newReceiverChat.lastMsgTime = new Date()
-      newReceiverChat.unReadCount = 1
-      await this.entityManager.save(ChatListEntity, newReceiverChat)
-    } else {
-      // 更新接收者的聊天列表（直接显示消息内容）
-      await this.entityManager.update(
-        ChatListEntity,
-        { userId: data.toUserId, friendId: userData.userId },
-        {
-          lastMsg: data.message,
-          lastMsgTime: new Date(),
-          unReadCount: () => 'un_read_count + 1'
+      // 获取群成员并更新未读消息数
+      const groupMembers = await this.entityManager.find(GroupMemberEntity, {
+        where: {
+          groupId: groupId,
+          is_exit: '0', // 未退出的成员
+          userId: Not(userData.userId) // 排除发送者自己
         }
-      )
-    }
+      })
 
-    // 统一消息格式，使用数据库实体格式
-    const messageData = {
-      id: savedMessage.id,
-      senderId: userData.userId,
-      receiverId: data.toUserId,
-      content: data.message,
-      type: 'text',
-      status: '0',
-      isGroup: false,
-      groupId: null,
-      attachmentUrl: null,
-      cardContent: null,
-      createdAt: savedMessage.createdAt,
-      updatedAt: savedMessage.updatedAt,
-      sender: savedMessage.sender,
-      receiver: savedMessage.receiver
-    }
+      // 批量更新群成员的未读消息数
+      if (groupMembers.length > 0) {
+        const memberIds = groupMembers.map((member) => member.id)
+        await this.entityManager.query(
+          `UPDATE group_member SET un_read_count = un_read_count + 1 WHERE id IN (${memberIds.join(',')}) AND is_exit = '0'`
+        )
+      }
 
-    // 发送给接收者
-    this.server.to(`user_${data.toUserId}`).emit('receivePrivateMessage', messageData)
+      // 统一消息格式，使用数据库实体格式
+      const messageData = {
+        id: savedMessage.id,
+        senderId: userData.userId,
+        receiverId: null, // 群聊消息没有特定接收者
+        content: data.message,
+        type: 'text',
+        status: '0',
+        isGroup: true,
+        groupId: groupId,
+        attachmentUrl: null,
+        cardContent: null,
+        createdAt: savedMessage.createdAt,
+        updatedAt: savedMessage.updatedAt,
+        sender: savedMessage.sender,
+        receiver: null
+      }
 
-    // 发送回执给发送者
-    client.emit('messageSent', {
-      code: 200,
-      msg: '私聊消息发送成功',
-      data: messageData
-    })
+      // 发送给群成员
+      client.to(`group_${groupId}`).emit('receiveGroupMessage', messageData)
 
-    return {
-      code: 200,
-      msg: '私聊消息发送成功',
-      data: messageData
+      // 发送回执给发送者
+      client.emit('messageSent', {
+        code: 200,
+        msg: '群聊消息发送成功',
+        data: messageData
+      })
+
+      return {
+        code: 200,
+        msg: '群聊消息发送成功',
+        data: messageData
+      }
+    } else {
+      // 处理私聊消息逻辑（保持原有代码）
+      // 检查发送者的聊天列表是否存在，不存在则创建
+      const senderChatList = await this.entityManager.findOne(ChatListEntity, {
+        where: { userId: userData.userId, friendId: data.toUserId }
+      })
+
+      if (!senderChatList) {
+        const newSenderChat = new ChatListEntity()
+        newSenderChat.userId = userData.userId
+        newSenderChat.friendId = data.toUserId
+        newSenderChat.lastMsg = `[送达] ${data.message}`
+        newSenderChat.lastMsgTime = new Date()
+        newSenderChat.unReadCount = 0
+        await this.entityManager.save(ChatListEntity, newSenderChat)
+      } else {
+        // 更新发送者的聊天列表（显示[送达]）
+        await this.entityManager.update(
+          ChatListEntity,
+          { userId: userData.userId, friendId: data.toUserId },
+          {
+            lastMsg: `[送达] ${data.message}`,
+            lastMsgTime: new Date(),
+            unReadCount: 0
+          }
+        )
+      }
+
+      // 检查接收者的聊天列表是否存在，不存在则创建
+      const receiverChatList = await this.entityManager.findOne(ChatListEntity, {
+        where: { userId: data.toUserId, friendId: userData.userId }
+      })
+
+      if (!receiverChatList) {
+        const newReceiverChat = new ChatListEntity()
+        newReceiverChat.userId = data.toUserId
+        newReceiverChat.friendId = userData.userId
+        newReceiverChat.lastMsg = data.message
+        newReceiverChat.lastMsgTime = new Date()
+        newReceiverChat.unReadCount = 1
+        await this.entityManager.save(ChatListEntity, newReceiverChat)
+      } else {
+        // 更新接收者的聊天列表（直接显示消息内容）
+        await this.entityManager.update(
+          ChatListEntity,
+          { userId: data.toUserId, friendId: userData.userId },
+          {
+            lastMsg: data.message,
+            lastMsgTime: new Date(),
+            unReadCount: () => 'un_read_count + 1'
+          }
+        )
+      }
+
+      // 统一消息格式，使用数据库实体格式
+      const messageData = {
+        id: savedMessage.id,
+        senderId: userData.userId,
+        receiverId: data.toUserId,
+        content: data.message,
+        type: 'text',
+        status: '0',
+        isGroup: false,
+        groupId: null,
+        attachmentUrl: null,
+        cardContent: null,
+        createdAt: savedMessage.createdAt,
+        updatedAt: savedMessage.updatedAt,
+        sender: savedMessage.sender,
+        receiver: savedMessage.receiver
+      }
+
+      // 发送给接收者
+      this.server.to(`user_${data.toUserId}`).emit('receivePrivateMessage', messageData)
+
+      // 发送回执给发送者
+      client.emit('messageSent', {
+        code: 200,
+        msg: '私聊消息发送成功',
+        data: messageData
+      })
+
+      return {
+        code: 200,
+        msg: '私聊消息发送成功',
+        data: messageData
+      }
     }
   }
 
@@ -266,6 +414,29 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return {
         code: 400,
         msg: '发送者未登录'
+      }
+    }
+
+    // 检查是否被拉黑
+    const blacklistCheck = await this.entityManager.findOne(UserFriendEntity, {
+      where: {
+        userId: data.toUserId,
+        friendId: userData.userId,
+        status: '3', // 拉黑状态
+        blacklistBy: data.toUserId // 接收者拉黑了发送者
+      }
+    })
+
+    if (blacklistCheck) {
+      // 发送拉黑提示给发送者
+      client.emit('messageSent', {
+        code: 403,
+        msg: '该用户已经拉黑了你，无法发送消息'
+      })
+
+      return {
+        code: 403,
+        msg: '该用户已经拉黑了你，无法发送消息'
       }
     }
 
@@ -485,5 +656,43 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     return result
+  }
+
+  @SubscribeMessage('joinGroup')
+  async joinGroup(@MessageBody() data: { groupId: number }, @ConnectedSocket() client: Socket) {
+    const userData = this.socketService.getUserDataBySocketId(client.id)
+    if (!userData) {
+      return { code: 400, msg: '用户未登录' }
+    }
+
+    // 验证用户是否是群成员
+    const member = await this.entityManager.findOne(GroupMemberEntity, {
+      where: {
+        groupId: data.groupId,
+        userId: userData.userId,
+        is_exit: '0'
+      }
+    })
+
+    if (member) {
+      client.join(`group_${data.groupId}`)
+      console.log(`用户 ${userData.userId} 加入群聊房间: group_${data.groupId}`)
+      return { code: 200, msg: '加入群聊房间成功' }
+    }
+
+    return { code: 403, msg: '无权限加入该群聊' }
+  }
+
+  // 用户离开群聊时调用
+  @SubscribeMessage('leaveGroup')
+  async leaveGroup(@MessageBody() data: { groupId: number }, @ConnectedSocket() client: Socket) {
+    const userData = this.socketService.getUserDataBySocketId(client.id)
+    if (!userData) {
+      return { code: 400, msg: '用户未登录' }
+    }
+
+    client.leave(`group_${data.groupId}`)
+    console.log(`用户 ${userData.userId} 离开群聊房间: group_${data.groupId}`)
+    return { code: 200, msg: '离开群聊房间成功' }
   }
 }
