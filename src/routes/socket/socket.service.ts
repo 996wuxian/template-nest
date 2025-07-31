@@ -1,8 +1,10 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { CreateSocketDto } from './dto/create-socket.dto'
 import { UpdateSocketDto } from './dto/update-socket.dto'
 import { JwtService } from '@nestjs/jwt'
-import { UserService } from '../user/user.service'
+import { InjectEntityManager } from '@nestjs/typeorm'
+import { EntityManager } from 'typeorm'
+import { UserEntity } from '../user/entities/user.entity'
 @Injectable()
 export class SocketService {
   // 存储用户ID到平台集合的映射
@@ -12,8 +14,8 @@ export class SocketService {
 
   constructor(
     private readonly jwtService: JwtService,
-    @Inject(forwardRef(() => UserService))
-    private readonly userService: UserService
+    @InjectEntityManager()
+    private readonly entityManager: EntityManager
   ) {}
   async create(createSocketDto: CreateSocketDto, socketId: string) {
     try {
@@ -22,7 +24,10 @@ export class SocketService {
       const userId = decoded.id
 
       // 验证用户是否存在
-      const user = await this.userService.findOneOfById(userId)
+      const user = await this.entityManager.findOne(UserEntity, {
+        where: { id: userId }
+      })
+
       if (!user) {
         return {
           code: 400,
@@ -51,7 +56,7 @@ export class SocketService {
       })
 
       // 更新用户在线状态
-      await this.userService.update(userId, { online: '1' })
+      await this.entityManager.update(UserEntity, userId, { online: '1' })
 
       return {
         code: 200,
@@ -134,7 +139,7 @@ export class SocketService {
           this.connectedClients.delete(userId)
         }
 
-        await this.userService.update(userId, { online: '0' })
+        await this.entityManager.update(UserEntity, userId, { online: '0' })
       }
 
       // 删除socketId映射

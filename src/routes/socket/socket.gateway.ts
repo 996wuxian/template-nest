@@ -19,6 +19,7 @@ import { GroupEntity } from '../user/entities/group.entity'
 import { GroupMemberEntity } from '../user/entities/group_member.entity'
 import { UserFriendEntity } from '../user/entities/friend.entity'
 import { UserEntity } from '../user/entities/user.entity'
+import { OnEvent } from '@nestjs/event-emitter'
 
 @WebSocketGateway()
 export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -30,6 +31,11 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {}
 
   private connectedClients: Set<string> = new Set()
+
+  private typingUsers: Map<
+    string,
+    { userId: number; targetUserId: number; timer?: NodeJS.Timeout }
+  > = new Map()
 
   @InjectEntityManager()
   entityManager: EntityManager
@@ -45,6 +51,32 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(`客户端断开连接: ${client.id}`)
     this.connectedClients.delete(client.id)
     console.log(`当前在线连接数: ${this.connectedClients.size}`)
+
+    // 获取用户数据
+    const userData = this.socketService.getUserDataBySocketId(client.id)
+    if (userData) {
+      // 清除该用户的所有输入状态
+      const keysToDelete: string[] = []
+      this.typingUsers.forEach((value, key) => {
+        if (value.userId === userData.userId) {
+          keysToDelete.push(key)
+          // 通知目标用户停止输入状态
+          this.server.to(`user_${value.targetUserId}`).emit('userTypingStatus', {
+            userId: userData.userId,
+            isTyping: false,
+            timestamp: Date.now()
+          })
+          // 清除定时器
+          if (value.timer) {
+            clearTimeout(value.timer)
+          }
+        }
+      })
+
+      // 删除相关记录
+      keysToDelete.forEach((key) => this.typingUsers.delete(key))
+    }
+
     // 从连接映射中移除
     await this.socketService.removeBySocketId(client.id)
   }
@@ -111,6 +143,83 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return result
   }
 
+  // 处理用户正在输入状态
+  @SubscribeMessage('userTyping')
+  async handleUserTyping(
+    @MessageBody() data: { targetUserId: number; isTyping: boolean },
+    @ConnectedSocket() client: Socket
+  ) {
+    const userData = this.socketService.getUserDataBySocketId(client.id)
+    if (!userData) {
+      return {
+        code: 400,
+        msg: '用户未登录'
+      }
+    }
+
+    const typingKey = `${userData.userId}_${data.targetUserId}`
+
+    if (data.isTyping) {
+      // 用户开始输入
+      const existingTyping = this.typingUsers.get(typingKey)
+
+      // 如果已经有输入状态，清除之前的定时器
+      if (existingTyping?.timer) {
+        clearTimeout(existingTyping.timer)
+      }
+
+      // 发送正在输入通知给目标用户
+      this.server.to(`user_${data.targetUserId}`).emit('userTypingStatus', {
+        userId: userData.userId,
+        isTyping: true,
+        timestamp: Date.now()
+      })
+
+      // 设置自动清除定时器（5秒后自动清除输入状态）
+      const timer = setTimeout(() => {
+        this.clearTypingStatus(userData.userId, data.targetUserId)
+      }, 5000)
+
+      // 保存输入状态
+      this.typingUsers.set(typingKey, {
+        userId: userData.userId,
+        targetUserId: data.targetUserId,
+        timer
+      })
+    } else {
+      // 用户停止输入
+      this.clearTypingStatus(userData.userId, data.targetUserId)
+    }
+
+    return {
+      code: 200,
+      msg: '输入状态更新成功'
+    }
+  }
+
+  // 清除输入状态的私有方法
+  private clearTypingStatus(userId: number, targetUserId: number) {
+    const typingKey = `${userId}_${targetUserId}`
+    const existingTyping = this.typingUsers.get(typingKey)
+
+    if (existingTyping) {
+      // 清除定时器
+      if (existingTyping.timer) {
+        clearTimeout(existingTyping.timer)
+      }
+
+      // 从Map中移除
+      this.typingUsers.delete(typingKey)
+
+      // 通知目标用户停止输入状态
+      this.server.to(`user_${targetUserId}`).emit('userTypingStatus', {
+        userId: userId,
+        isTyping: false,
+        timestamp: Date.now()
+      })
+    }
+  }
+
   // 添加心跳响应
   @SubscribeMessage('ping')
   async handlePing(@ConnectedSocket() client: Socket) {
@@ -174,6 +283,7 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // 如果是私聊消息，检查是否被拉黑
     if (!isGroupMessage && data.toUserId) {
+      this.clearTypingStatus(userData.userId, data.toUserId)
       const blacklistCheck = await this.entityManager.findOne(UserFriendEntity, {
         where: {
           userId: data.toUserId,
@@ -694,5 +804,279 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.leave(`group_${data.groupId}`)
     console.log(`用户 ${userData.userId} 离开群聊房间: group_${data.groupId}`)
     return { code: 200, msg: '离开群聊房间成功' }
+  }
+
+  // 标记群聊消息为已读
+  @SubscribeMessage('groupMsgRead')
+  async groupMsgRead(@MessageBody() data: { groupId: number }, @ConnectedSocket() client: Socket) {
+    const userData = this.socketService.getUserDataBySocketId(client.id)
+    if (!userData) {
+      return {
+        code: 400,
+        msg: '用户未登录'
+      }
+    }
+
+    try {
+      // 验证用户是否是群成员
+      const groupMember = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId: data.groupId,
+          userId: userData.userId,
+          is_exit: '0' // 未退出的成员
+        }
+      })
+
+      if (!groupMember) {
+        return {
+          code: 403,
+          msg: '您不是该群的成员或已退出群聊'
+        }
+      }
+
+      // 检查群是否存在且未解散
+      const group = await this.entityManager.findOne(GroupEntity, {
+        where: {
+          id: data.groupId,
+          is_dismiss: '0' // 未解散
+        }
+      })
+
+      if (!group) {
+        return {
+          code: 404,
+          msg: '群聊不存在或已解散'
+        }
+      }
+
+      // 获取当前未读消息数
+      const currentUnreadCount = groupMember.unReadCount
+
+      // 将该用户在该群的未读消息数清零
+      await this.entityManager.update(
+        GroupMemberEntity,
+        {
+          groupId: data.groupId,
+          userId: userData.userId,
+          is_exit: '0'
+        },
+        {
+          unReadCount: 0
+        }
+      )
+
+      console.log(
+        `用户 ${userData.userId} 已读群聊 ${data.groupId} 的消息，清除 ${currentUnreadCount} 条未读消息`
+      )
+
+      return {
+        code: 200,
+        msg: '群聊消息已读成功',
+        data: {
+          groupId: data.groupId,
+          userId: userData.userId,
+          clearedUnreadCount: currentUnreadCount,
+          readTime: new Date()
+        }
+      }
+    } catch (error) {
+      console.error('群聊消息已读处理失败:', error)
+      return {
+        code: 500,
+        msg: '群聊消息已读处理失败'
+      }
+    }
+  }
+
+  // 标记群聊单条消息为已读
+  @SubscribeMessage('groupOneMsgRead')
+  async groupOneMsgRead(
+    @MessageBody() data: { messageId: number; groupId: number },
+    @ConnectedSocket() client: Socket
+  ) {
+    const userData = this.socketService.getUserDataBySocketId(client.id)
+    if (!userData) {
+      return {
+        code: 400,
+        msg: '用户未登录'
+      }
+    }
+
+    try {
+      // 验证用户是否是群成员
+      const groupMember = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId: data.groupId,
+          userId: userData.userId,
+          is_exit: '0' // 未退出的成员
+        }
+      })
+
+      if (!groupMember) {
+        return {
+          code: 403,
+          msg: '您不是该群的成员或已退出群聊'
+        }
+      }
+
+      // 调用消息服务标记单条消息为已读
+      const result = await this.messageService.oneMsgRead(data.messageId, userData.userId)
+
+      // 只有在消息成功标记为已读，且返回了消息数据时才处理群聊逻辑
+      if (result.code === 200 && result.data) {
+        // 验证消息是否属于指定群聊
+        if (result.data.groupId !== data.groupId) {
+          return {
+            code: 400,
+            msg: '消息不属于指定群聊'
+          }
+        }
+
+        // 减少该用户在该群的未读消息数（但不能小于0）
+        await this.entityManager.query(
+          `UPDATE group_member SET un_read_count = GREATEST(un_read_count - 1, 0) 
+           WHERE group_id = ? AND user_id = ? AND is_exit = '0'`,
+          [data.groupId, userData.userId]
+        )
+
+        console.log(`用户 ${userData.userId} 已读群聊 ${data.groupId} 中的消息 ${data.messageId}`)
+
+        return {
+          code: 200,
+          msg: '群聊消息已读成功',
+          data: {
+            messageId: data.messageId,
+            groupId: data.groupId,
+            userId: userData.userId,
+            readTime: new Date()
+          }
+        }
+      }
+
+      return result
+    } catch (error) {
+      console.error('群聊单条消息已读处理失败:', error)
+      return {
+        code: 500,
+        msg: '群聊单条消息已读处理失败'
+      }
+    }
+  }
+
+  // 监听好友请求事件
+  @OnEvent('friend.request')
+  handleFriendRequest(payload: any) {
+    this.server.to(`user_${payload.targetUserId}`).emit('systemMessage', payload)
+  }
+
+  // 监听好友响应事件
+  @OnEvent('friend.response')
+  handleFriendResponse(payload: any) {
+    this.server.to(`user_${payload.targetUserId}`).emit('systemMessage', payload)
+  }
+
+  // 监听群组通知事件
+  @OnEvent('group.notification')
+  handleGroupNotification(payload: any) {
+    if (payload.targetUserIds && payload.targetUserIds.length > 0) {
+      payload.targetUserIds.forEach((userId) => {
+        this.server.to(`user_${userId}`).emit('systemMessage', payload.data)
+      })
+    }
+  }
+
+  // 用户系统消息事件监听器
+  @OnEvent('user.systemMessage')
+  handleUserSystemMessage(payload: {
+    userId: number
+    type: string
+    targetUserId: number
+    data: any
+  }) {
+    this.server.to(`user_${payload.userId}`).emit('systemMessage', {
+      type: payload.type,
+      targetUserId: payload.targetUserId,
+      data: payload.data
+    })
+  }
+
+  // 群成员移除事件监听器
+  @OnEvent('group.memberRemoved')
+  handleGroupMemberRemoved(payload: {
+    groupId: number
+    removedMember: any
+    operatorId: number
+    operatorName: string
+    time: Date
+  }) {
+    this.server.to(`group_${payload.groupId}`).emit('memberRemoved', {
+      groupId: payload.groupId,
+      removedMember: payload.removedMember,
+      operatorId: payload.operatorId,
+      operatorName: payload.operatorName,
+      time: payload.time
+    })
+  }
+
+  // 群解散事件监听器
+  @OnEvent('group.dismissed')
+  handleGroupDismissed(payload: {
+    groupId: number
+    groupName: string
+    operatorId: number
+    time: Date
+  }) {
+    this.server.to(`group_${payload.groupId}`).emit('groupDismissed', {
+      groupId: payload.groupId,
+      groupName: payload.groupName,
+      operatorId: payload.operatorId,
+      time: payload.time
+    })
+  }
+
+  // 新成员加入群聊事件监听器
+  @OnEvent('group.newMemberAdded')
+  handleNewMemberAdded(payload: {
+    groupId: number
+    newMembers: any[]
+    operatorId: number
+    operatorName: string
+    time: Date
+  }) {
+    this.server.to(`group_${payload.groupId}`).emit('newMemberAdded', {
+      groupId: payload.groupId,
+      newMembers: payload.newMembers,
+      operatorId: payload.operatorId,
+      operatorName: payload.operatorName,
+      time: payload.time
+    })
+  }
+
+  // 新群公告事件监听器
+  @OnEvent('group.newAnnouncement')
+  handleNewGroupAnnouncement(payload: { groupId: number; announcement: any; time: Date }) {
+    this.server.to(`group_${payload.groupId}`).emit('newGroupAnnouncement', {
+      groupId: payload.groupId,
+      announcement: payload.announcement,
+      time: payload.time
+    })
+  }
+
+  // 群公告更新事件监听器
+  @OnEvent('group.announcementUpdated')
+  handleGroupAnnouncementUpdated(payload: {
+    groupId: number
+    announcement: any
+    operatorId: number
+    operatorName: string
+    time: Date
+  }) {
+    this.server.to(`group_${payload.groupId}`).emit('groupAnnouncementUpdated', {
+      groupId: payload.groupId,
+      announcement: payload.announcement,
+      operatorId: payload.operatorId,
+      operatorName: payload.operatorName,
+      time: payload.time
+    })
   }
 }

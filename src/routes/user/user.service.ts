@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, UnauthorizedException } from '@nestjs/common'
+import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
 import { LoginDto } from './dto/login.dto'
@@ -19,22 +19,20 @@ import { encryptPwd, compareSyncPwd } from 'src/utils/tools'
 
 import { UserFriendEntity } from './entities/friend.entity'
 import { AddFriendDto, UpdateFriendDto } from './dto/friend.dto'
-import { SocketGateway } from '../socket/socket.gateway'
 import { ChatListEntity } from './entities/chat_list.entity'
 import { GroupEntity } from './entities/group.entity'
 import { GroupMemberEntity } from './entities/group_member.entity'
 import { CreateGroupDto, UpdateGroupDto } from './dto/group.dto'
-
+import { GroupAnnouncementEntity } from './entities/group_announcement.entity'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 @Injectable()
 export class UserService {
   constructor(
     private jwtService: JwtService,
-    @Inject(forwardRef(() => SocketGateway))
-    private socketGateway: SocketGateway
+    private eventEmitter: EventEmitter2,
+    @InjectEntityManager()
+    private entityManager: EntityManager
   ) {}
-
-  @InjectEntityManager()
-  entityManager: EntityManager
 
   // 初始化用户、角色和权限
   async initUserRulePermission() {
@@ -466,9 +464,20 @@ export class UserService {
     const sender = await this.findOneOfById(userId)
 
     // 通过 socket 发送好友请求通知
-    this.socketGateway.server.to(`user_${addFriendDto.friendId}`).emit('systemMessage', {
+    // this.socketGateway.server.to(`user_${addFriendDto.friendId}`).emit('systemMessage', {
+    //   type: 'friendRequest',
+    //   targetUserId: addFriendDto.friendId, // 接收者ID
+    //   data: {
+    //     fromUserId: userId,
+    //     fromUserName: sender.nickname || sender.username,
+    //     desc: addFriendDto.desc,
+    //     time: new Date()
+    //   }
+    // })
+
+    this.eventEmitter.emit('friend.request', {
       type: 'friendRequest',
-      targetUserId: addFriendDto.friendId, // 接收者ID
+      targetUserId: addFriendDto.friendId,
       data: {
         fromUserId: userId,
         fromUserName: sender.nickname || sender.username,
@@ -615,10 +624,10 @@ export class UserService {
       // 获取发送者信息
       const sender = friend.userId === userId ? friend.user : friend.friend
 
-      // 通过 socket 发送系统消息通知
-      this.socketGateway.server.to(`user_${notifyUserId}`).emit('systemMessage', {
+      // 使用事件替换直接调用
+      this.eventEmitter.emit('friend.response', {
         type: updateFriendDto.status === '1' ? 'friendAccepted' : 'friendRejected',
-        targetUserId: notifyUserId, // 接收者ID
+        targetUserId: notifyUserId,
         data: {
           fromUserId: userId,
           fromUserName: sender.nickname || sender.username,
@@ -1086,14 +1095,14 @@ export class UserService {
       memberIds.forEach((memberId) => {
         if (memberId !== createGroupDto.creatorId) {
           // 不给创建者自己发通知
-          this.socketGateway.server.to(`user_${memberId}`).emit('systemMessage', {
+          this.eventEmitter.emit('user.systemMessage', {
+            userId: memberId,
             type: 'groupCreated',
             targetUserId: memberId,
             data: {
               groupId: savedGroup.id,
               groupName: savedGroup.name,
-              creatorId: createGroupDto.creatorId,
-              creatorName: creator.nickname || creator.username,
+              operatorId: createGroupDto.creatorId,
               time: new Date()
             }
           })
@@ -1228,6 +1237,730 @@ export class UserService {
       return {
         code: 500,
         msg: '服务器错误'
+      }
+    }
+  }
+
+  // 移除群聊成员
+  async removeGroupMember(operatorId: number, groupId: number, memberId: number) {
+    try {
+      // 检查群聊是否存在且未解散
+      const group = await this.entityManager.findOne(GroupEntity, {
+        where: { id: groupId, is_dismiss: '0' }
+      })
+
+      if (!group) {
+        return {
+          code: 400,
+          msg: '群聊不存在或已解散'
+        }
+      }
+
+      // 检查操作者权限（只有群主和管理员可以移除成员）
+      const operator = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId,
+          userId: operatorId,
+          is_exit: '0'
+        }
+      })
+
+      if (!operator || (operator.role !== '0' && operator.role !== '1')) {
+        return {
+          code: 403,
+          msg: '无权限执行此操作，只有群主和管理员可以移除成员'
+        }
+      }
+
+      // 检查被移除的成员是否存在
+      const member = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId,
+          userId: memberId,
+          is_exit: '0'
+        },
+        relations: ['user']
+      })
+
+      if (!member) {
+        return {
+          code: 400,
+          msg: '该用户不在群聊中'
+        }
+      }
+
+      // 群主不能被移除，管理员不能移除群主
+      if (member.role === '0') {
+        return {
+          code: 400,
+          msg: '不能移除群主'
+        }
+      }
+
+      // 管理员不能移除其他管理员（只有群主可以）
+      if (member.role === '1' && operator.role !== '0') {
+        return {
+          code: 403,
+          msg: '管理员不能移除其他管理员'
+        }
+      }
+
+      // 标记成员为已退出
+      await this.entityManager.update(
+        GroupMemberEntity,
+        { groupId, userId: memberId },
+        { is_exit: '1', is_list: '0' }
+      )
+
+      // 更新群聊当前成员数
+      await this.entityManager.update(
+        GroupEntity,
+        { id: groupId },
+        { currentMemberCount: () => 'current_member_count - 1' }
+      )
+
+      const memberUser = await this.entityManager.findOne(UserEntity, {
+        where: { id: memberId }
+      })
+
+      // 通过 socket 通知被移除的成员
+      this.eventEmitter.emit('user.systemMessage', {
+        userId: memberId,
+        type: 'removedFromGroup',
+        targetUserId: memberId,
+        data: {
+          groupId: groupId,
+          groupName: group.name,
+          operatorId: operatorId,
+          operatorName: operator.nickname || memberUser.username,
+          time: new Date()
+        }
+      })
+
+      // 通知群内其他成员
+      this.eventEmitter.emit('group.memberRemoved', {
+        groupId: groupId,
+        removedMember: {
+          id: memberId,
+          username: memberUser.username,
+          nickname: member.nickname
+        },
+        operatorId: operatorId,
+        operatorName: operator.nickname || memberUser.username,
+        time: new Date()
+      })
+
+      return {
+        code: 200,
+        msg: '移除成员成功'
+      }
+    } catch (error) {
+      console.error('移除群聊成员失败:', error)
+      return {
+        code: 500,
+        msg: '服务器错误'
+      }
+    }
+  }
+
+  // 删除群聊（解散群聊）
+  async deleteGroup(operatorId: number, groupId: number) {
+    try {
+      // 检查群聊是否存在且未解散
+      const group = await this.entityManager.findOne(GroupEntity, {
+        where: { id: groupId, is_dismiss: '0' }
+      })
+
+      if (!group) {
+        return {
+          code: 400,
+          msg: '群聊不存在或已解散'
+        }
+      }
+
+      // 检查操作者权限（只有群主可以解散群聊）
+      const operator = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId,
+          userId: operatorId,
+          is_exit: '0',
+          role: '0' // 只有群主
+        }
+      })
+
+      if (!operator) {
+        return {
+          code: 403,
+          msg: '无权限执行此操作，只有群主可以解散群聊'
+        }
+      }
+
+      // 获取所有群成员
+      const members = await this.entityManager.find(GroupMemberEntity, {
+        where: {
+          groupId,
+          is_exit: '0'
+        },
+        relations: ['user']
+      })
+
+      // 标记群聊为已解散
+      await this.entityManager.update(
+        GroupEntity,
+        { id: groupId },
+        {
+          is_dismiss: '1',
+          currentMemberCount: 0
+        }
+      )
+
+      // 将所有成员标记为已退出
+      await this.entityManager.update(
+        GroupMemberEntity,
+        { groupId },
+        { is_exit: '1', is_list: '0' }
+      )
+
+      // 通知所有群成员群聊已解散
+      members.forEach((member) => {
+        this.eventEmitter.emit('user.systemMessage', {
+          userId: member.userId,
+          type: 'groupDismissed',
+          targetUserId: member.userId,
+          data: {
+            groupId: groupId,
+            groupName: group.name,
+            operatorId: operatorId,
+            time: new Date()
+          }
+        })
+      })
+
+      // 通知群聊房间
+      this.eventEmitter.emit('group.dismissed', {
+        groupId: groupId,
+        groupName: group.name,
+        operatorId: operatorId,
+        time: new Date()
+      })
+
+      return {
+        code: 200,
+        msg: '群聊解散成功'
+      }
+    } catch (error) {
+      console.error('删除群聊失败:', error)
+      return {
+        code: 500,
+        msg: '服务器错误'
+      }
+    }
+  }
+
+  // 添加群成员
+  async addGroupMember(groupId: number, userIds: number[], operatorId: number) {
+    try {
+      // 验证操作者是否是群主或管理员
+      const operatorMember = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId,
+          userId: operatorId,
+          is_exit: '0',
+          role: In(['0', '1']) // 群主或管理员
+        }
+      })
+
+      if (!operatorMember) {
+        return {
+          success: false,
+          message: '您没有权限添加群成员'
+        }
+      }
+
+      // 验证群聊是否存在且未解散
+      const group = await this.entityManager.findOne(GroupEntity, {
+        where: { id: groupId, is_dismiss: '0' }
+      })
+
+      if (!group) {
+        return {
+          success: false,
+          message: '群聊不存在或已解散'
+        }
+      }
+
+      // 验证要添加的用户是否存在
+      const users = await this.entityManager.find(UserEntity, {
+        where: { id: In(userIds) }
+      })
+
+      if (users.length !== userIds.length) {
+        return {
+          success: false,
+          message: '部分用户不存在'
+        }
+      }
+
+      // 检查用户是否已经是群成员
+      const existingMembers = await this.entityManager.find(GroupMemberEntity, {
+        where: {
+          groupId,
+          userId: In(userIds),
+          is_exit: '0'
+        }
+      })
+
+      const existingUserIds = existingMembers.map((member) => member.userId)
+      const newUserIds = userIds.filter((userId) => !existingUserIds.includes(userId))
+
+      if (newUserIds.length === 0) {
+        return {
+          success: false,
+          message: '所有用户都已经是群成员'
+        }
+      }
+
+      // 检查群成员数量限制
+      if (group.currentMemberCount + newUserIds.length > group.maxMemberCount) {
+        return {
+          success: false,
+          message: '群成员数量已达上限'
+        }
+      }
+
+      // 添加新成员
+      const newMembers = newUserIds.map((userId) => {
+        const member = new GroupMemberEntity()
+        member.groupId = groupId
+        member.userId = userId
+        member.role = '2' // 普通成员
+        member.joinTime = new Date()
+        member.is_exit = '0'
+        member.is_list = '1'
+        return member
+      })
+
+      await this.entityManager.save(GroupMemberEntity, newMembers)
+
+      // 更新群成员数量
+      await this.entityManager.update(
+        GroupEntity,
+        { id: groupId },
+        { currentMemberCount: group.currentMemberCount + newUserIds.length }
+      )
+
+      // 通知新成员和现有成员
+      const addedUsers = users.filter((user) => newUserIds.includes(user.id))
+      const operator = await this.entityManager.findOne(UserEntity, {
+        where: { id: operatorId }
+      })
+
+      // 通知新成员
+      addedUsers.forEach((user) => {
+        this.eventEmitter.emit('user.systemMessage', {
+          userId: user.id,
+          type: 'addedToGroup',
+          targetUserId: user.id,
+          data: {
+            groupId,
+            groupName: group.name,
+            operatorId,
+            operatorName: operator.nickname || operator.username,
+            time: new Date()
+          }
+        })
+      })
+
+      // 通知群聊房间有新成员加入
+      this.eventEmitter.emit('group.newMemberAdded', {
+        groupId,
+        newMembers: addedUsers.map((user) => ({
+          id: user.id,
+          username: user.username,
+          nickname: user.nickname
+        })),
+        operatorId,
+        operatorName: operator.nickname || operator.username,
+        time: new Date()
+      })
+
+      return {
+        code: 200,
+        success: true,
+        message: `成功添加 ${newUserIds.length} 名成员`,
+        data: {
+          addedCount: newUserIds.length,
+          addedUsers: addedUsers.map((user) => ({
+            id: user.id,
+            username: user.username,
+            nickname: user.nickname,
+            avatar: user.avatar
+          }))
+        }
+      }
+    } catch (error) {
+      console.error('添加群成员失败:', error)
+      return {
+        success: false,
+        message: '服务器错误'
+      }
+    }
+  }
+
+  // 发布群公告
+  async publishGroupAnnouncement(
+    groupId: number,
+    title: string,
+    content: string,
+    publisherId: number
+  ) {
+    try {
+      // 验证发布者是否是群主或管理员
+      const publisherMember = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId,
+          userId: publisherId,
+          is_exit: '0',
+          role: In(['0', '1']) // 群主或管理员
+        }
+      })
+
+      if (!publisherMember) {
+        return {
+          success: false,
+          message: '您没有权限发布群公告'
+        }
+      }
+
+      // 验证群聊是否存在且未解散
+      const group = await this.entityManager.findOne(GroupEntity, {
+        where: { id: groupId, is_dismiss: '0' }
+      })
+
+      if (!group) {
+        return {
+          success: false,
+          message: '群聊不存在或已解散'
+        }
+      }
+
+      // 获取发布者信息
+      const publisher = await this.entityManager.findOne(UserEntity, {
+        where: { id: publisherId }
+      })
+
+      // 创建群公告
+      const announcement = new GroupAnnouncementEntity()
+      announcement.title = title
+      announcement.content = content
+      announcement.group_id = groupId
+      announcement.status = 1
+      announcement.publisher_id = publisherId
+      // 设置关系
+      announcement.publisher = publisher
+
+      const savedAnnouncement = await this.entityManager.save(GroupAnnouncementEntity, announcement)
+
+      // 通知群聊房间有新公告
+      this.eventEmitter.emit('group.newAnnouncement', {
+        groupId,
+        announcement: {
+          id: savedAnnouncement.id,
+          title: savedAnnouncement.title,
+          content: savedAnnouncement.content,
+          publisherId,
+          publisherName: publisher.nickname || publisher.username,
+          createdAt: savedAnnouncement.created_at
+        },
+        time: new Date()
+      })
+
+      return {
+        code: 200,
+        success: true,
+        message: '群公告发布成功',
+        data: {
+          id: savedAnnouncement.id,
+          title: savedAnnouncement.title,
+          content: savedAnnouncement.content,
+          publisherId,
+          publisherName: publisher.nickname || publisher.username,
+          createdAt: savedAnnouncement.created_at
+        }
+      }
+    } catch (error) {
+      console.error('发布群公告失败:', error)
+      return {
+        success: false,
+        message: '服务器错误'
+      }
+    }
+  }
+
+  // 获取群公告列表
+  async getGroupAnnouncements(
+    groupId: number,
+    userId: number,
+    page: number = 1,
+    limit: number = 10
+  ) {
+    try {
+      // 验证用户是否是群成员
+      const member = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId,
+          userId,
+          is_exit: '0'
+        }
+      })
+
+      if (!member) {
+        return {
+          success: false,
+          message: '您不是该群的成员'
+        }
+      }
+
+      // 验证群聊是否存在且未解散
+      const group = await this.entityManager.findOne(GroupEntity, {
+        where: { id: groupId, is_dismiss: '0' }
+      })
+
+      if (!group) {
+        return {
+          success: false,
+          message: '群聊不存在或已解散'
+        }
+      }
+
+      // 分页查询群公告
+      const [announcements, total] = await this.entityManager.findAndCount(
+        GroupAnnouncementEntity,
+        {
+          where: {
+            group_id: groupId,
+            status: 1
+          },
+          relations: ['publisher'],
+          order: {
+            created_at: 'DESC'
+          },
+          skip: (page - 1) * limit,
+          take: limit
+        }
+      )
+
+      // 格式化返回数据
+      const formattedAnnouncements = announcements.map((announcement) => ({
+        id: announcement.id,
+        title: announcement.title,
+        content: announcement.content,
+        publisherId: announcement.publisher_id,
+        publisherName: announcement.publisher.nickname || announcement.publisher.username,
+        publisherAvatar: announcement.publisher.avatar,
+
+        createdAt: announcement.created_at,
+        updatedAt: announcement.updated_at
+      }))
+
+      return {
+        code: 200,
+        success: true,
+        message: '获取群公告列表成功',
+        data: {
+          announcements: formattedAnnouncements,
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit)
+        }
+      }
+    } catch (error) {
+      console.error('获取群公告列表失败:', error)
+      return {
+        success: false,
+        message: '服务器错误'
+      }
+    }
+  }
+
+  // 删除群公告
+  async deleteGroupAnnouncement(announcementId: number, operatorId: number) {
+    try {
+      // 查找公告
+      const announcement = await this.entityManager.findOne(GroupAnnouncementEntity, {
+        where: { id: announcementId, status: 1 },
+        relations: ['group']
+      })
+
+      if (!announcement) {
+        return {
+          success: false,
+          message: '公告不存在或已删除'
+        }
+      }
+
+      // 验证操作者权限（群主、管理员或公告发布者）
+      const operatorMember = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId: announcement.group_id,
+          userId: operatorId,
+          is_exit: '0'
+        }
+      })
+
+      if (!operatorMember) {
+        return {
+          success: false,
+          message: '您不是该群的成员'
+        }
+      }
+
+      // 检查权限：群主、管理员或公告发布者可以删除
+      const canDelete =
+        operatorMember.role === '0' || // 群主
+        operatorMember.role === '1' || // 管理员
+        announcement.publisher_id === operatorId // 公告发布者
+
+      if (!canDelete) {
+        return {
+          success: false,
+          message: '您没有权限删除此公告'
+        }
+      }
+
+      // 软删除公告（设置状态为0）
+      await this.entityManager.update(
+        GroupAnnouncementEntity,
+        { id: announcementId },
+        { status: 0 }
+      )
+
+      // 获取操作者信息
+      const operator = await this.entityManager.findOne(UserEntity, {
+        where: { id: operatorId }
+      })
+
+      return {
+        code: 200,
+        success: true,
+        message: '群公告删除成功'
+      }
+    } catch (error) {
+      console.error('删除群公告失败:', error)
+      return {
+        success: false,
+        message: '服务器错误'
+      }
+    }
+  }
+
+  // 修改群公告
+  async updateGroupAnnouncement(
+    announcementId: number,
+    title: string,
+    content: string,
+    operatorId: number
+  ) {
+    try {
+      // 查找公告
+      const announcement = await this.entityManager.findOne(GroupAnnouncementEntity, {
+        where: { id: announcementId, status: 1 },
+        relations: ['group']
+      })
+
+      if (!announcement) {
+        return {
+          success: false,
+          message: '公告不存在或已删除'
+        }
+      }
+
+      // 验证操作者权限（群主、管理员或公告发布者）
+      const operatorMember = await this.entityManager.findOne(GroupMemberEntity, {
+        where: {
+          groupId: announcement.group_id,
+          userId: operatorId,
+          is_exit: '0'
+        }
+      })
+
+      if (!operatorMember) {
+        return {
+          success: false,
+          message: '您不是该群的成员'
+        }
+      }
+
+      // 检查权限：群主、管理员或公告发布者可以修改
+      const canUpdate =
+        operatorMember.role === '0' || // 群主
+        operatorMember.role === '1' || // 管理员
+        announcement.publisher_id === operatorId // 公告发布者
+
+      if (!canUpdate) {
+        return {
+          success: false,
+          message: '您没有权限修改此公告'
+        }
+      }
+
+      // 更新公告
+      await this.entityManager.update(
+        GroupAnnouncementEntity,
+        { id: announcementId },
+        { title, content }
+      )
+
+      // 获取更新后的公告信息
+      const updatedAnnouncement = await this.entityManager.findOne(GroupAnnouncementEntity, {
+        where: { id: announcementId },
+        relations: ['publisher']
+      })
+
+      // 获取操作者信息
+      const operator = await this.entityManager.findOne(UserEntity, {
+        where: { id: operatorId }
+      })
+
+      // 通知群聊房间公告被更新
+      this.eventEmitter.emit('group.announcementUpdated', {
+        groupId: announcement.group_id,
+        announcement: {
+          id: updatedAnnouncement.id,
+          title: updatedAnnouncement.title,
+          content: updatedAnnouncement.content,
+          publisherId: updatedAnnouncement.publisher_id,
+          publisherName:
+            updatedAnnouncement.publisher.nickname || updatedAnnouncement.publisher.username,
+          createdAt: updatedAnnouncement.created_at,
+          updatedAt: updatedAnnouncement.updated_at
+        },
+        operatorId,
+        operatorName: operator.nickname || operator.username,
+        time: new Date()
+      })
+
+      return {
+        code: 200,
+        success: true,
+        message: '群公告修改成功',
+        data: {
+          id: updatedAnnouncement.id,
+          title: updatedAnnouncement.title,
+          content: updatedAnnouncement.content,
+          publisherId: updatedAnnouncement.publisher_id,
+          publisherName:
+            updatedAnnouncement.publisher.nickname || updatedAnnouncement.publisher.username,
+          createdAt: updatedAnnouncement.created_at,
+          updatedAt: updatedAnnouncement.updated_at
+        }
+      }
+    } catch (error) {
+      console.error('修改群公告失败:', error)
+      return {
+        success: false,
+        message: '服务器错误'
       }
     }
   }

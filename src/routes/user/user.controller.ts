@@ -11,7 +11,8 @@ import {
   Session,
   BadRequestException,
   UseGuards,
-  Query
+  Query,
+  Put
 } from '@nestjs/common'
 import { UserService } from './user.service'
 import { CreateUserDto } from './dto/create-user.dto'
@@ -397,5 +398,131 @@ export class UserController {
   async getGroupDetail(@Req() req, @Param('id') groupId: number) {
     const userId = req.user
     return await this.userService.getGroupDetail(groupId, userId)
+  }
+
+  @Delete('group/:groupId/member/:memberId')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('delete')
+  @ApiOperation({ summary: '移除群聊成员' })
+  async removeGroupMember(
+    @Req() req,
+    @Param('groupId') groupId: number,
+    @Param('memberId') memberId: number
+  ) {
+    const operatorId = req.user
+    return await this.userService.removeGroupMember(operatorId, groupId, memberId)
+  }
+
+  @Delete('group/:groupId')
+  @UseGuards(AuthGuard('jwt'))
+  @RequireLogin()
+  @RequirePermission('delete')
+  @ApiOperation({ summary: '删除群聊（解散群聊）' })
+  async deleteGroup(@Req() req, @Param('groupId') groupId: number) {
+    const operatorId = req.user
+    return await this.userService.deleteGroup(operatorId, groupId)
+  }
+
+  // 添加群成员
+  @Post('group/:groupId/members')
+  @UseGuards(AuthGuard('jwt'))
+  async addGroupMember(
+    @Param('groupId') groupId: number,
+    @Body() body: { userIds: number[] },
+    @Req() req: any
+  ) {
+    try {
+      const result = await this.userService.addGroupMember(groupId, body.userIds, req.user)
+      return result
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      }
+    }
+  }
+
+  // 发布群公告
+  @Post('group/:groupId/announcements')
+  @UseGuards(AuthGuard('jwt'))
+  async publishGroupAnnouncement(
+    @Param('groupId') groupId: number,
+    @Body() body: { title: string; content: string },
+    @Req() req: any
+  ) {
+    try {
+      const result = await this.userService.publishGroupAnnouncement(
+        groupId,
+        body.title,
+        body.content,
+        req.user
+      )
+      return result
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      }
+    }
+  }
+
+  // 获取群公告列表
+  @Get('group/:groupId/announcements')
+  @UseGuards(AuthGuard('jwt'))
+  async getGroupAnnouncements(
+    @Param('groupId') groupId: number,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+    @Req() req: any
+  ) {
+    try {
+      const result = await this.userService.getGroupAnnouncements(groupId, req.user, page, limit)
+      return result
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      }
+    }
+  }
+
+  // 删除群公告
+  @Delete('announcements/:announcementId')
+  @UseGuards(AuthGuard('jwt'))
+  async deleteGroupAnnouncement(@Param('announcementId') announcementId: number, @Req() req: any) {
+    try {
+      const result = await this.userService.deleteGroupAnnouncement(announcementId, req.user)
+      return result
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      }
+    }
+  }
+
+  // 修改群公告
+  @Put('announcements/:announcementId')
+  @UseGuards(AuthGuard('jwt'))
+  async updateGroupAnnouncement(
+    @Param('announcementId') announcementId: number,
+    @Body() body: { title: string; content: string },
+    @Req() req: any
+  ) {
+    try {
+      const result = await this.userService.updateGroupAnnouncement(
+        announcementId,
+        body.title,
+        body.content,
+        req.user
+      )
+      return result
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      }
+    }
   }
 }

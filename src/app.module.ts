@@ -14,6 +14,7 @@ import { UploadModule } from './routes/upload/upload.module'
 import { SocketModule } from './routes/socket/socket.module'
 import { MessageModule } from './routes/message/message.module'
 
+import { EventEmitterModule } from '@nestjs/event-emitter'
 @Module({
   imports: [
     TypeOrmModule.forRoot({
@@ -29,6 +30,7 @@ import { MessageModule } from './routes/message/message.module'
       retryAttempts: 10,
       autoLoadEntities: true
     }),
+    EventEmitterModule.forRoot(),
     UserModule,
     MenuModule,
     RedisModule,
